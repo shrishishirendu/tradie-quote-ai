@@ -14,6 +14,7 @@ import {
   createQuoteForUser,
   duplicateQuoteForUser,
   getJobsForUser,
+  getFieldDashboardSummaryForUser,
   getPaymentRequestsForJob,
   getPriceBookItemsForUser,
   getPublicQuoteAcceptance,
@@ -297,6 +298,9 @@ export const appRouter = router({
       if (!response) throw new TRPCError({ code: "CONFLICT", message: "This approval request has already been actioned or is no longer available." });
       return response;
     }),
+  }),
+  dashboard: router({
+    summary: protectedProcedure.query(({ ctx }) => getFieldDashboardSummaryForUser(ctx.user.id)),
   }),
   variation: router({
     listForJob: protectedProcedure.input(z.object({ jobId: z.number().int().positive() })).query(async ({ ctx, input }) => {

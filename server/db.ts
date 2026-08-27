@@ -468,3 +468,13 @@ export async function getPaymentRequestsForJob(jobId: number, userId: number) {
   if (!db) throw new Error("Database is unavailable");
   return db.select().from(paymentRequests).where(and(eq(paymentRequests.jobId, jobId), eq(paymentRequests.userId, userId))).orderBy(desc(paymentRequests.updatedAt));
 }
+
+export async function getFieldDashboardSummaryForUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const [pendingApprovals, sentVariations] = await Promise.all([
+    db.select().from(quoteAcceptances).where(and(eq(quoteAcceptances.userId, userId), eq(quoteAcceptances.status, "pending"))),
+    db.select().from(variations).where(and(eq(variations.userId, userId), eq(variations.status, "sent"))),
+  ]);
+  return { pendingApprovals: pendingApprovals.length, sentVariations: sentVariations.length };
+}

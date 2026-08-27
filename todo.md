@@ -30,3 +30,8 @@
 - [x] Add automated tests and public-route responsive visual verification for acceptance, variations, and payment workflows.
 - [ ] Claim the connected Stripe test sandbox and complete a live sandbox checkout before production payment collection.
 - [ ] Complete a signed-in browser walkthrough for approval-link creation, valid customer approval, variation photo upload, variation status changes, and deposit/invoice link creation before production rollout.
+- [x] Define the notification trigger matrix, recipient preferences, message priority, and SMS/email delivery rules for key quote-to-cash events.
+- [x] Design a mobile-first tradie dashboard with actionable daily work, money, approvals, variations, and job-status information.
+- [x] Document implementation-ready information architecture, mobile interaction flows, and notification delivery choices.
+- [x] Add explicit mobile dashboard cards for quote approvals and onsite variations, with direct user actions and real-data counts.
+- [x] Re-verify the enhanced mobile dashboard at a phone viewport.

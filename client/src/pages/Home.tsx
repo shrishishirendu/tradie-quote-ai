@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { JobOperationsPanel, JobsWorkspace, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
+import { JobOperationsPanel, JobsWorkspace, MobileFieldDashboard, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { applyPriceBookItemToQuote } from "@shared/priceBook";
@@ -15,6 +15,7 @@ import {
   FilePlus2,
   FileText,
   ImagePlus,
+  LayoutDashboard,
   Loader2,
   Mail,
   MoreHorizontal,
@@ -36,7 +37,7 @@ import { toast } from "sonner";
 type Category = "labour" | "materials" | "callout" | "equipment" | "other";
 type LineItem = { id: string; category: Category; description: string; unit: string; quantity: number; rate: number; markupPercent: number; sortOrder: number };
 type PhotoInput = { fileName: string; dataUrl?: string; storageKey?: string; url?: string; previewUrl: string };
-type WorkspaceView = "quotes" | "priceBook" | "jobs";
+type WorkspaceView = "dashboard" | "quotes" | "priceBook" | "jobs";
 type PriceBookDraft = { category: Category; name: string; description: string; unit: string; rate: number; markupPercent: number; trade: string; status: "active" | "archived" };
 type QuoteForm = {
   id?: number;
@@ -140,7 +141,7 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
-  const [workspace, setWorkspace] = useState<WorkspaceView>(() => window.location.pathname === "/price-book" ? "priceBook" : window.location.pathname === "/jobs" ? "jobs" : "quotes");
+  const [workspace, setWorkspace] = useState<WorkspaceView>(() => window.location.pathname === "/dashboard" ? "dashboard" : window.location.pathname === "/price-book" ? "priceBook" : window.location.pathname === "/jobs" ? "jobs" : "quotes");
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [priceBookDraft, setPriceBookDraft] = useState<PriceBookDraft>(() => newPriceBookItem());
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +154,7 @@ export default function Home() {
   const duplicateMutation = trpc.quote.duplicate.useMutation();
   const priceBookQuery = trpc.priceBook.list.useQuery(undefined, { enabled: isAuthenticated });
   const jobsQuery = trpc.job.list.useQuery(undefined, { enabled: isAuthenticated });
+  const dashboardSummaryQuery = trpc.dashboard.summary.useQuery(undefined, { enabled: isAuthenticated });
   const variationsQuery = trpc.variation.listForJob.useQuery({ jobId: selectedJobId ?? -1 }, { enabled: Boolean(selectedJobId) });
   const paymentsQuery = trpc.payment.listForJob.useQuery({ jobId: selectedJobId ?? -1 }, { enabled: Boolean(selectedJobId) });
   const createPriceBookMutation = trpc.priceBook.create.useMutation();
@@ -355,7 +357,7 @@ export default function Home() {
           <div className="px-3 pt-5">
             <button onClick={startNewQuote} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#d4ee8c] px-3 text-sm font-bold text-[#17372f] transition hover:bg-[#e1f6a7] active:scale-[.98]"> <Plus className="h-4 w-4" /> {sidebarOpen && "New quote"}</button>
           </div>
-          <div className="mt-6 space-y-1 px-3"><SidebarWorkspaceButton active={workspace === "quotes"} open={sidebarOpen} onClick={() => setWorkspace("quotes")} icon={<FileText className="h-4 w-4" />} label="Quotes" /><SidebarWorkspaceButton active={workspace === "jobs"} open={sidebarOpen} onClick={() => setWorkspace("jobs")} icon={<CalendarDays className="h-4 w-4" />} label="Jobs" /><SidebarWorkspaceButton active={workspace === "priceBook"} open={sidebarOpen} onClick={() => setWorkspace("priceBook")} icon={<ClipboardList className="h-4 w-4" />} label="Price book" /></div>
+          <div className="mt-6 space-y-1 px-3"><SidebarWorkspaceButton active={workspace === "dashboard"} open={sidebarOpen} onClick={() => setWorkspace("dashboard")} icon={<LayoutDashboard className="h-4 w-4" />} label="Field dashboard" /><SidebarWorkspaceButton active={workspace === "quotes"} open={sidebarOpen} onClick={() => setWorkspace("quotes")} icon={<FileText className="h-4 w-4" />} label="Quotes" /><SidebarWorkspaceButton active={workspace === "jobs"} open={sidebarOpen} onClick={() => setWorkspace("jobs")} icon={<CalendarDays className="h-4 w-4" />} label="Jobs" /><SidebarWorkspaceButton active={workspace === "priceBook"} open={sidebarOpen} onClick={() => setWorkspace("priceBook")} icon={<ClipboardList className="h-4 w-4" />} label="Price book" /></div>
           <div className="mt-6 px-4"><p className={`${sidebarOpen ? "" : "sr-only"} font-mono text-[10px] font-medium tracking-[.16em] text-[#91ad98]`}>YOUR QUOTES</p></div>
           <div className="mt-3 flex-1 overflow-y-auto px-3 pb-5">
             {quotesQuery.isLoading && <div className="flex items-center gap-2 px-3 py-5 text-xs text-[#b7cdbb]"><Loader2 className="h-3.5 w-3.5 animate-spin" />{sidebarOpen && "Loading workspace"}</div>}
@@ -377,12 +379,12 @@ export default function Home() {
           <header className="flex min-h-[78px] items-center justify-between border-b border-[#dde4d8] bg-[#fbfaf5]/75 px-4 backdrop-blur md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <button onClick={() => setSidebarOpen(value => !value)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#d8e0d3] bg-white lg:hidden" aria-label="Open quote navigation"><PanelLeftOpen className="h-4 w-4" /></button>
-              <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-display text-[23px] leading-tight tracking-tight">{workspace === "quotes" ? (form.jobTitle || "New customer quote") : workspace === "jobs" ? "Job workspace" : "Your price book"}</p>{workspace === "quotes" && selectedId && <span className="hidden rounded-full bg-[#e9eee2] px-2 py-0.5 font-mono text-[9px] font-semibold text-[#60766b] sm:block">{form.quoteNumber}</span>}</div><p className="mt-1 truncate font-mono text-[10px] font-medium uppercase tracking-[.1em] text-[#668075]">{workspace === "quotes" ? <>{form.customerName || "Complete the brief to begin"} <span className="px-1 text-[#a3afa4]">/</span> {form.trade}</> : workspace === "jobs" ? "PLAN · TRACK · COMPLETE" : "CONSISTENT PRICING, YOUR WAY"}</p></div>
+              <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-display text-[23px] leading-tight tracking-tight">{workspace === "dashboard" ? "Field dashboard" : workspace === "quotes" ? (form.jobTitle || "New customer quote") : workspace === "jobs" ? "Job workspace" : "Your price book"}</p>{workspace === "quotes" && selectedId && <span className="hidden rounded-full bg-[#e9eee2] px-2 py-0.5 font-mono text-[9px] font-semibold text-[#60766b] sm:block">{form.quoteNumber}</span>}</div><p className="mt-1 truncate font-mono text-[10px] font-medium uppercase tracking-[.1em] text-[#668075]">{workspace === "dashboard" ? "WORK · MONEY · FOLLOW UPS" : workspace === "quotes" ? <>{form.customerName || "Complete the brief to begin"} <span className="px-1 text-[#a3afa4]">/</span> {form.trade}</> : workspace === "jobs" ? "PLAN · TRACK · COMPLETE" : "CONSISTENT PRICING, YOUR WAY"}</p></div>
             </div>
-            <div className="flex items-center gap-2">{workspace === "quotes" ? <>{selectedId && <button onClick={createJobFromQuote} disabled={createJobMutation.isPending} className="subtle-button hidden lg:inline-flex">{createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />} Create job</button>}{selectedId && <button onClick={requestQuoteApproval} disabled={acceptanceMutation.isPending} className="subtle-button hidden lg:inline-flex">{acceptanceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Request approval</button>}{selectedId && <button onClick={duplicateQuote} disabled={duplicateMutation.isPending} className="subtle-button hidden md:inline-flex">{duplicateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} Copy</button>}<button onClick={() => window.print()} className="subtle-button hidden sm:inline-flex"><Printer className="h-4 w-4" /> Print / PDF</button><button onClick={shareByEmail} className="subtle-button hidden md:inline-flex"><Mail className="h-4 w-4" /> Share</button><button onClick={() => saveQuote("ready")} disabled={createMutation.isPending || updateMutation.isPending} className="primary-button">{(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span className="hidden sm:inline">Ready to send</span><span className="sm:hidden">Save</span></button></> : <button onClick={() => setWorkspace("quotes")} className="primary-button"><FilePlus2 className="h-4 w-4" /> New quote</button>}</div>
+            <div className="flex items-center gap-2">{workspace === "quotes" ? <>{selectedId && <button onClick={createJobFromQuote} disabled={createJobMutation.isPending} className="subtle-button hidden lg:inline-flex">{createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />} Create job</button>}{selectedId && <button onClick={requestQuoteApproval} disabled={acceptanceMutation.isPending} className="subtle-button hidden lg:inline-flex">{acceptanceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Request approval</button>}{selectedId && <button onClick={duplicateQuote} disabled={duplicateMutation.isPending} className="subtle-button hidden md:inline-flex">{duplicateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} Copy</button>}<button onClick={() => window.print()} className="subtle-button hidden sm:inline-flex"><Printer className="h-4 w-4" /> Print / PDF</button><button onClick={shareByEmail} className="subtle-button hidden md:inline-flex"><Mail className="h-4 w-4" /> Share</button><button onClick={() => saveQuote("ready")} disabled={createMutation.isPending || updateMutation.isPending} className="primary-button">{(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span className="hidden sm:inline">Ready to send</span><span className="sm:hidden">Save</span></button></> : <button onClick={startNewQuote} className="primary-button"><FilePlus2 className="h-4 w-4" /> New quote</button>}</div>
           </header>
 
-          {workspace === "quotes" ? <div className="mx-auto max-w-[1800px] p-4 lg:p-7">
+          {workspace === "dashboard" ? <MobileFieldDashboard jobs={jobsQuery.data || []} quotes={quotesQuery.data || []} priceBookCount={(priceBookQuery.data || []).filter(item => item.status === "active").length} pendingApprovals={dashboardSummaryQuery.data?.pendingApprovals || 0} sentVariations={dashboardSummaryQuery.data?.sentVariations || 0} onNewQuote={startNewQuote} onOpenJobs={() => setWorkspace("jobs")} onOpenQuotes={() => setWorkspace("quotes")} onOpenPriceBook={() => setWorkspace("priceBook")} /> : workspace === "quotes" ? <div className="mx-auto max-w-[1800px] p-4 lg:p-7">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 lg:hidden"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${form.status === "ready" ? "bg-[#8eb74a]" : "bg-[#c5a353]"}`} /><span className="text-xs font-semibold text-[#526e63]">{statusLabel(form.status)}</span></div><button onClick={() => setDetailsOpen(value => !value)} className="subtle-button text-xs">{detailsOpen ? "Hide details" : "Show details"}</button></div>
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_470px]">
               <div className="space-y-5">
