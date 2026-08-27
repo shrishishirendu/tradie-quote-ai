@@ -14,3 +14,4 @@
 - [x] Add a quote duplication workflow that clones editable customer, job, cost, and photo-reference details into a new draft.
 - [x] Expand automated coverage for quote workflow validation and access protection.
 - [x] Add authenticated quote-router tests that verify per-user ownership scoping for saved quote actions.
+- [x] Produce a detailed PRD and user-flow specification for e-signature, price book, and variation-management features.
