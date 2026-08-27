@@ -6,12 +6,18 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
+  createJobFromQuoteForUser,
+  createPriceBookItemForUser,
   createQuoteForUser,
   duplicateQuoteForUser,
+  getJobsForUser,
+  getPriceBookItemsForUser,
   getQuoteDetailForUser,
   getQuotesForUser,
   PersistedPhotoPayload,
   QuotePayload,
+  updateJobStatusForUser,
+  updatePriceBookItemForUser,
   updateQuoteForUser,
 } from "./db";
 import { storagePut } from "./storage";
@@ -64,6 +70,17 @@ const draftSchema = z.object({
   siteDetails: z.string().trim().max(6000).optional(),
   existingScope: z.string().trim().max(6000).optional(),
   photos: z.array(z.object({ dataUrl: z.string().max(9_500_000), fileName: z.string().max(220) })).max(5),
+});
+
+export const priceBookInputSchema = z.object({
+  category: z.enum(["labour", "materials", "callout", "equipment", "other"]),
+  name: z.string().trim().min(1).max(180),
+  description: z.string().trim().max(4000).optional(),
+  unit: z.string().trim().min(1).max(32),
+  rate: z.number().finite().min(0).max(1_000_000),
+  markupPercent: z.number().finite().min(-100).max(500),
+  trade: z.string().trim().min(1).max(100),
+  status: z.enum(["active", "archived"]),
 });
 
 function toOptional(value: string | undefined) {
@@ -233,6 +250,32 @@ export const appRouter = router({
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The draft response was not valid. Please try again." });
       }
+    }),
+  }),
+  priceBook: router({
+    list: protectedProcedure.query(({ ctx }) => getPriceBookItemsForUser(ctx.user.id)),
+    create: protectedProcedure.input(priceBookInputSchema).mutation(async ({ ctx, input }) => {
+      const item = await createPriceBookItemForUser(ctx.user.id, { ...input, description: toOptional(input.description) });
+      if (!item) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Price book item could not be created." });
+      return item;
+    }),
+    update: protectedProcedure.input(z.object({ id: z.number().int().positive(), data: priceBookInputSchema })).mutation(async ({ ctx, input }) => {
+      const item = await updatePriceBookItemForUser(input.id, ctx.user.id, { ...input.data, description: toOptional(input.data.description) });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Price book item not found." });
+      return item;
+    }),
+  }),
+  job: router({
+    list: protectedProcedure.query(({ ctx }) => getJobsForUser(ctx.user.id)),
+    createFromQuote: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const job = await createJobFromQuoteForUser(input.quoteId, ctx.user.id);
+      if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found." });
+      return job;
+    }),
+    updateStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["planned", "active", "on_hold", "complete"]) })).mutation(async ({ ctx, input }) => {
+      const job = await updateJobStatusForUser(input.id, ctx.user.id, input.status);
+      if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      return job;
     }),
   }),
 });

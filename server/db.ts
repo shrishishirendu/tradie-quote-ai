@@ -2,12 +2,15 @@ import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
+  jobs,
+  priceBookItems,
   quoteLineItems,
   quotePhotos,
   quotes,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { calculateQuoteJobTotal } from "./jobSnapshot";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -50,6 +53,17 @@ export type QuotePayload = {
   validUntil?: Date | null;
   lineItems: QuoteLinePayload[];
   photos: PersistedPhotoPayload[];
+};
+
+export type PriceBookPayload = {
+  category: "labour" | "materials" | "callout" | "equipment" | "other";
+  name: string;
+  description?: string | null;
+  unit: string;
+  rate: number;
+  markupPercent: number;
+  trade: string;
+  status: "active" | "archived";
 };
 
 export async function getDb() {
@@ -229,4 +243,83 @@ export async function duplicateQuoteForUser(sourceQuoteId: number, userId: numbe
       fileName: photo.fileName,
     })),
   });
+}
+
+export async function getPriceBookItemsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  return db.select().from(priceBookItems).where(eq(priceBookItems.userId, userId)).orderBy(desc(priceBookItems.updatedAt));
+}
+
+export async function createPriceBookItemForUser(userId: number, payload: PriceBookPayload) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const created = await db.insert(priceBookItems).values({
+    userId,
+    category: payload.category,
+    name: payload.name,
+    description: payload.description ?? null,
+    unit: payload.unit,
+    rate: payload.rate.toFixed(2),
+    markupPercent: payload.markupPercent.toFixed(2),
+    trade: payload.trade,
+    status: payload.status,
+  }).$returningId();
+  const itemId = Number(created[0]?.id);
+  return (await db.select().from(priceBookItems).where(and(eq(priceBookItems.id, itemId), eq(priceBookItems.userId, userId))).limit(1))[0];
+}
+
+export async function updatePriceBookItemForUser(itemId: number, userId: number, payload: PriceBookPayload) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.update(priceBookItems).set({
+    category: payload.category,
+    name: payload.name,
+    description: payload.description ?? null,
+    unit: payload.unit,
+    rate: payload.rate.toFixed(2),
+    markupPercent: payload.markupPercent.toFixed(2),
+    trade: payload.trade,
+    status: payload.status,
+    updatedAt: new Date(),
+  }).where(and(eq(priceBookItems.id, itemId), eq(priceBookItems.userId, userId)));
+  return (await db.select().from(priceBookItems).where(and(eq(priceBookItems.id, itemId), eq(priceBookItems.userId, userId))).limit(1))[0];
+}
+
+export async function getJobsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  return db.select().from(jobs).where(eq(jobs.userId, userId)).orderBy(desc(jobs.updatedAt));
+}
+
+export async function createJobFromQuoteForUser(quoteId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const existing = (await db.select().from(jobs).where(and(eq(jobs.sourceQuoteId, quoteId), eq(jobs.userId, userId))).limit(1))[0];
+  if (existing) return existing;
+  const source = await getQuoteDetailForUser(quoteId, userId);
+  if (!source) return undefined;
+  const jobTotal = calculateQuoteJobTotal(source.lineItems, source.quote.gstRate);
+  const created = await db.insert(jobs).values({
+    userId,
+    sourceQuoteId: quoteId,
+    jobNumber: `JOB-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+    status: "planned",
+    customerName: source.quote.customerName,
+    trade: source.quote.trade,
+    title: source.quote.jobTitle,
+    address: source.quote.jobAddress,
+    scopeOfWork: source.quote.scopeOfWork,
+    quotedTotal: jobTotal.toFixed(2),
+    gstRate: Number(source.quote.gstRate).toFixed(2),
+  }).$returningId();
+  const jobId = Number(created[0]?.id);
+  return (await db.select().from(jobs).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId))).limit(1))[0];
+}
+
+export async function updateJobStatusForUser(jobId: number, userId: number, status: "planned" | "active" | "on_hold" | "complete") {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.update(jobs).set({ status, updatedAt: new Date() }).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId)));
+  return (await db.select().from(jobs).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId))).limit(1))[0];
 }

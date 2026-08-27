@@ -60,8 +60,42 @@ export const quotePhotos = mysqlTable("quotePhotos", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [index("quote_photos_quote_idx").on(table.quoteId)]);
 
+export const priceBookItems = mysqlTable("priceBookItems", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  category: mysqlEnum("category", ["labour", "materials", "callout", "equipment", "other"]).notNull(),
+  name: varchar("name", { length: 180 }).notNull(),
+  description: text("description"),
+  unit: varchar("unit", { length: 32 }).default("each").notNull(),
+  rate: decimal("rate", { precision: 12, scale: 2 }).notNull(),
+  markupPercent: decimal("markupPercent", { precision: 7, scale: 2 }).default("0.00").notNull(),
+  trade: varchar("trade", { length: 100 }).notNull(),
+  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("price_book_user_status_idx").on(table.userId, table.status, table.trade)]);
+
+export const jobs = mysqlTable("jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sourceQuoteId: int("sourceQuoteId").references(() => quotes.id, { onDelete: "set null" }),
+  jobNumber: varchar("jobNumber", { length: 48 }).notNull(),
+  status: mysqlEnum("status", ["planned", "active", "on_hold", "complete"]).default("planned").notNull(),
+  customerName: varchar("customerName", { length: 160 }).notNull(),
+  trade: varchar("trade", { length: 100 }).notNull(),
+  title: varchar("title", { length: 220 }).notNull(),
+  address: text("address"),
+  scopeOfWork: text("scopeOfWork"),
+  quotedTotal: decimal("quotedTotal", { precision: 14, scale: 2 }).notNull(),
+  gstRate: decimal("gstRate", { precision: 5, scale: 2 }).default("10.00").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("jobs_user_status_updated_idx").on(table.userId, table.status, table.updatedAt), index("jobs_source_quote_idx").on(table.sourceQuoteId)]);
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Quote = typeof quotes.$inferSelect;
 export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
 export type QuotePhoto = typeof quotePhotos.$inferSelect;
+export type PriceBookItem = typeof priceBookItems.$inferSelect;
+export type Job = typeof jobs.$inferSelect;

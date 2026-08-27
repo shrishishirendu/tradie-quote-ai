@@ -1,6 +1,8 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { JobsWorkspace, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { applyPriceBookItemToQuote } from "@shared/priceBook";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -34,6 +36,8 @@ import { toast } from "sonner";
 type Category = "labour" | "materials" | "callout" | "equipment" | "other";
 type LineItem = { id: string; category: Category; description: string; unit: string; quantity: number; rate: number; markupPercent: number; sortOrder: number };
 type PhotoInput = { fileName: string; dataUrl?: string; storageKey?: string; url?: string; previewUrl: string };
+type WorkspaceView = "quotes" | "priceBook" | "jobs";
+type PriceBookDraft = { category: Category; name: string; description: string; unit: string; rate: number; markupPercent: number; trade: string; status: "active" | "archived" };
 type QuoteForm = {
   id?: number;
   quoteNumber?: string;
@@ -65,6 +69,7 @@ const blankLine = (sortOrder: number): LineItem => ({ id: crypto.randomUUID(), c
 const newQuote = (): QuoteForm => ({
   status: "draft", businessName: "", businessAbn: "", businessLicence: "", businessPhone: "", businessEmail: "", customerName: "", customerEmail: "", customerPhone: "", trade: "Plumbing", jobTitle: "", jobAddress: "", siteDetails: "", scopeOfWork: "", assumptions: "", exclusions: "", terms: defaultTerms, gstRate: 10, validUntil: dateInputValue(14), lineItems: [blankLine(0)], photos: [],
 });
+const newPriceBookItem = (): PriceBookDraft => ({ category: "labour", name: "", description: "", unit: "hour", rate: 0, markupPercent: 0, trade: "Plumbing", status: "active" });
 
 function dateInputValue(daysAhead: number) {
   const date = new Date();
@@ -135,6 +140,8 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
+  const [workspace, setWorkspace] = useState<WorkspaceView>(() => window.location.pathname === "/price-book" ? "priceBook" : window.location.pathname === "/jobs" ? "jobs" : "quotes");
+  const [priceBookDraft, setPriceBookDraft] = useState<PriceBookDraft>(() => newPriceBookItem());
   const photoInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
   const quotesQuery = trpc.quote.list.useQuery(undefined, { enabled: isAuthenticated });
@@ -143,6 +150,12 @@ export default function Home() {
   const createMutation = trpc.quote.create.useMutation();
   const updateMutation = trpc.quote.update.useMutation();
   const duplicateMutation = trpc.quote.duplicate.useMutation();
+  const priceBookQuery = trpc.priceBook.list.useQuery(undefined, { enabled: isAuthenticated });
+  const jobsQuery = trpc.job.list.useQuery(undefined, { enabled: isAuthenticated });
+  const createPriceBookMutation = trpc.priceBook.create.useMutation();
+  const updatePriceBookMutation = trpc.priceBook.update.useMutation();
+  const createJobMutation = trpc.job.createFromQuote.useMutation();
+  const updateJobStatusMutation = trpc.job.updateStatus.useMutation();
   const totals = useMemo(() => quoteTotals(form), [form]);
 
   useEffect(() => {
@@ -156,11 +169,13 @@ export default function Home() {
 
   const loadQuote = (id: number) => {
     if (id === selectedId) return;
+    setWorkspace("quotes");
     setSelectedId(id);
     setForm(newQuote());
   };
 
   const startNewQuote = () => {
+    setWorkspace("quotes");
     setSelectedId(null);
     setForm(newQuote());
   };
@@ -251,6 +266,46 @@ export default function Home() {
     });
   };
 
+  const addPriceBookItem = () => {
+    if (!priceBookDraft.name.trim()) { toast.error("Add a clear item name before saving it to your price book."); return; }
+    createPriceBookMutation.mutate({ ...priceBookDraft, name: priceBookDraft.name.trim(), description: priceBookDraft.description.trim() || undefined }, {
+      onSuccess: () => {
+        setPriceBookDraft(newPriceBookItem());
+        utils.priceBook.list.invalidate();
+        toast.success("Price book item saved for future quotes.");
+      },
+      onError: error => toast.error(error.message || "The price book item could not be saved."),
+    });
+  };
+
+  const addBookItemToQuote = (item: any) => {
+    setForm(current => ({ ...current, lineItems: [...current.lineItems, { id: crypto.randomUUID(), ...applyPriceBookItemToQuote(item, current.lineItems.length) }] }));
+    toast.success(`${item.name} added to this quote. You can still adjust it for this job.`);
+  };
+
+  const archivePriceBookItem = (item: any) => {
+    updatePriceBookMutation.mutate({ id: item.id, data: { category: item.category, name: item.name, description: item.description || undefined, unit: item.unit, rate: Number(item.rate), markupPercent: Number(item.markupPercent), trade: item.trade, status: "archived" } }, {
+      onSuccess: () => { utils.priceBook.list.invalidate(); toast.success("Price book item archived. It will not appear in new quote picks."); },
+      onError: error => toast.error(error.message || "The price book item could not be archived."),
+    });
+  };
+
+  const createJobFromQuote = () => {
+    if (!selectedId) { toast.message("Save this quote before creating a job workspace."); return; }
+    createJobMutation.mutate({ quoteId: selectedId }, {
+      onSuccess: () => {
+        utils.job.list.invalidate();
+        setWorkspace("jobs");
+        toast.success("Job workspace created from this quote.");
+      },
+      onError: error => toast.error(error.message || "The job workspace could not be created."),
+    });
+  };
+
+  const updateJobStatus = (id: number, status: "planned" | "active" | "on_hold" | "complete") => {
+    updateJobStatusMutation.mutate({ id, status }, { onSuccess: () => { utils.job.list.invalidate(); toast.success("Job status updated."); }, onError: error => toast.error(error.message || "Job status could not be updated.") });
+  };
+
   if (loading) return <div className="min-h-screen app-grid flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-[#315d50]" /></div>;
   if (!isAuthenticated) return <MarketingLanding onLogin={() => startLogin()} />;
 
@@ -269,7 +324,8 @@ export default function Home() {
           <div className="px-3 pt-5">
             <button onClick={startNewQuote} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#d4ee8c] px-3 text-sm font-bold text-[#17372f] transition hover:bg-[#e1f6a7] active:scale-[.98]"> <Plus className="h-4 w-4" /> {sidebarOpen && "New quote"}</button>
           </div>
-          <div className="mt-8 px-4"><p className={`${sidebarOpen ? "" : "sr-only"} font-mono text-[10px] font-medium tracking-[.16em] text-[#91ad98]`}>YOUR QUOTES</p></div>
+          <div className="mt-6 space-y-1 px-3"><SidebarWorkspaceButton active={workspace === "quotes"} open={sidebarOpen} onClick={() => setWorkspace("quotes")} icon={<FileText className="h-4 w-4" />} label="Quotes" /><SidebarWorkspaceButton active={workspace === "jobs"} open={sidebarOpen} onClick={() => setWorkspace("jobs")} icon={<CalendarDays className="h-4 w-4" />} label="Jobs" /><SidebarWorkspaceButton active={workspace === "priceBook"} open={sidebarOpen} onClick={() => setWorkspace("priceBook")} icon={<ClipboardList className="h-4 w-4" />} label="Price book" /></div>
+          <div className="mt-6 px-4"><p className={`${sidebarOpen ? "" : "sr-only"} font-mono text-[10px] font-medium tracking-[.16em] text-[#91ad98]`}>YOUR QUOTES</p></div>
           <div className="mt-3 flex-1 overflow-y-auto px-3 pb-5">
             {quotesQuery.isLoading && <div className="flex items-center gap-2 px-3 py-5 text-xs text-[#b7cdbb]"><Loader2 className="h-3.5 w-3.5 animate-spin" />{sidebarOpen && "Loading workspace"}</div>}
             {!quotesQuery.isLoading && quotesQuery.data?.length === 0 && sidebarOpen && <p className="px-3 py-4 text-xs leading-relaxed text-[#9bb5a2]">Your saved customer quotes will appear here.</p>}
@@ -290,12 +346,12 @@ export default function Home() {
           <header className="flex min-h-[78px] items-center justify-between border-b border-[#dde4d8] bg-[#fbfaf5]/75 px-4 backdrop-blur md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <button onClick={() => setSidebarOpen(value => !value)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#d8e0d3] bg-white lg:hidden" aria-label="Open quote navigation"><PanelLeftOpen className="h-4 w-4" /></button>
-              <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-display text-[23px] leading-tight tracking-tight">{form.jobTitle || "New customer quote"}</p>{selectedId && <span className="hidden rounded-full bg-[#e9eee2] px-2 py-0.5 font-mono text-[9px] font-semibold text-[#60766b] sm:block">{form.quoteNumber}</span>}</div><p className="mt-1 truncate font-mono text-[10px] font-medium uppercase tracking-[.1em] text-[#668075]">{form.customerName || "Complete the brief to begin"} <span className="px-1 text-[#a3afa4]">/</span> {form.trade}</p></div>
+              <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-display text-[23px] leading-tight tracking-tight">{workspace === "quotes" ? (form.jobTitle || "New customer quote") : workspace === "jobs" ? "Job workspace" : "Your price book"}</p>{workspace === "quotes" && selectedId && <span className="hidden rounded-full bg-[#e9eee2] px-2 py-0.5 font-mono text-[9px] font-semibold text-[#60766b] sm:block">{form.quoteNumber}</span>}</div><p className="mt-1 truncate font-mono text-[10px] font-medium uppercase tracking-[.1em] text-[#668075]">{workspace === "quotes" ? <>{form.customerName || "Complete the brief to begin"} <span className="px-1 text-[#a3afa4]">/</span> {form.trade}</> : workspace === "jobs" ? "PLAN · TRACK · COMPLETE" : "CONSISTENT PRICING, YOUR WAY"}</p></div>
             </div>
-            <div className="flex items-center gap-2">{selectedId && <button onClick={duplicateQuote} disabled={duplicateMutation.isPending} className="subtle-button hidden md:inline-flex">{duplicateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} Copy</button>}<button onClick={() => window.print()} className="subtle-button hidden sm:inline-flex"><Printer className="h-4 w-4" /> Print / PDF</button><button onClick={shareByEmail} className="subtle-button hidden md:inline-flex"><Mail className="h-4 w-4" /> Share</button><button onClick={() => saveQuote("ready")} disabled={createMutation.isPending || updateMutation.isPending} className="primary-button">{(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span className="hidden sm:inline">Ready to send</span><span className="sm:hidden">Save</span></button></div>
+            <div className="flex items-center gap-2">{workspace === "quotes" ? <>{selectedId && <button onClick={createJobFromQuote} disabled={createJobMutation.isPending} className="subtle-button hidden lg:inline-flex">{createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />} Create job</button>}{selectedId && <button onClick={duplicateQuote} disabled={duplicateMutation.isPending} className="subtle-button hidden md:inline-flex">{duplicateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} Copy</button>}<button onClick={() => window.print()} className="subtle-button hidden sm:inline-flex"><Printer className="h-4 w-4" /> Print / PDF</button><button onClick={shareByEmail} className="subtle-button hidden md:inline-flex"><Mail className="h-4 w-4" /> Share</button><button onClick={() => saveQuote("ready")} disabled={createMutation.isPending || updateMutation.isPending} className="primary-button">{(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span className="hidden sm:inline">Ready to send</span><span className="sm:hidden">Save</span></button></> : <button onClick={() => setWorkspace("quotes")} className="primary-button"><FilePlus2 className="h-4 w-4" /> New quote</button>}</div>
           </header>
 
-          <div className="mx-auto max-w-[1800px] p-4 lg:p-7">
+          {workspace === "quotes" ? <div className="mx-auto max-w-[1800px] p-4 lg:p-7">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 lg:hidden"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${form.status === "ready" ? "bg-[#8eb74a]" : "bg-[#c5a353]"}`} /><span className="text-xs font-semibold text-[#526e63]">{statusLabel(form.status)}</span></div><button onClick={() => setDetailsOpen(value => !value)} className="subtle-button text-xs">{detailsOpen ? "Hide details" : "Show details"}</button></div>
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_470px]">
               <div className="space-y-5">
@@ -310,6 +366,7 @@ export default function Home() {
                     <div className="rounded-xl border border-[#d8e6c8] bg-[#f3f9e8] px-4 py-3 text-xs leading-relaxed text-[#4a6953]"><span className="font-bold">A careful first pass, not an autopilot.</span> Drafts identify possible work from your brief and photos. You remain responsible for confirming site conditions, quantities, pricing, licences, compliance and GST treatment.</div>
                     <div className="mt-5"><label className="field-label">Job-site photos <span className="normal-case tracking-normal text-[#789184]">(optional, up to five)</span></label><input ref={photoInputRef} onChange={handlePhotoSelect} accept="image/jpeg,image/png,image/webp" type="file" multiple className="hidden" /><div className="flex flex-wrap gap-3">{form.photos.map((photo, index) => <div key={`${photo.fileName}-${index}`} className="group relative h-[78px] w-[96px] overflow-hidden rounded-xl border border-[#d7ded2] bg-[#edf0e9]"><img src={photo.previewUrl} alt={photo.fileName} className="h-full w-full object-cover" /><button onClick={() => removePhoto(index)} className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[#183f35]/90 text-white opacity-0 transition group-hover:opacity-100" aria-label={`Remove ${photo.fileName}`}><X className="h-3.5 w-3.5" /></button></div>)}<button onClick={() => photoInputRef.current?.click()} className="flex h-[78px] w-[116px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[#bfcdb9] bg-[#fbfcf8] text-[#537565] transition hover:border-[#71965a] hover:bg-[#f4f9ec]"><ImagePlus className="h-4 w-4" /><span className="text-[11px] font-bold">Add photos</span></button></div></div>
                     <div className="mt-5"><Field label="Scope of work" value={form.scopeOfWork} onChange={value => updateForm("scopeOfWork", value)} textarea rows={5} placeholder="Describe what will be supplied and completed. AI-generated wording appears here for your review." /></div>
+                    <PriceBookQuickAdd items={priceBookQuery.data || []} onAdd={addBookItemToQuote} onOpenBook={() => setWorkspace("priceBook")} />
                     <LineItemEditor items={form.lineItems} onChange={updateLine} onAdd={addLine} onRemove={removeLine} />
                   </div>
                 </section>
@@ -318,7 +375,7 @@ export default function Home() {
               </div>
               <aside className="xl:sticky xl:top-6 xl:self-start"><div className="mb-3 flex items-center justify-between px-1"><p className="font-mono text-[10px] font-bold tracking-[.14em] text-[#668075]">CUSTOMER PREVIEW</p><span className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.1em] ${form.status === "ready" ? "bg-[#d9ee9f] text-[#35563a]" : "bg-[#eee7d5] text-[#8a6d31]"}`}>{statusLabel(form.status)}</span></div><CustomerQuote form={form} totals={totals} compact /><div className="panel mt-4 rounded-2xl p-4"><div className="grid grid-cols-2 gap-3"><Field label="GST rate" value={String(form.gstRate)} onChange={value => updateForm("gstRate", Number(value))} type="number" /><Field label="Valid until" value={form.validUntil} onChange={value => updateForm("validUntil", value)} type="date" /></div><div className="mt-4 flex gap-2"><button onClick={() => saveQuote("draft")} className="subtle-button flex-1" disabled={createMutation.isPending || updateMutation.isPending}><FileText className="h-4 w-4" />Save draft</button><button onClick={() => window.print()} className="subtle-button grid w-11 place-items-center px-0" aria-label="Print or save PDF"><Printer className="h-4 w-4" /></button></div></div></aside>
             </div>
-          </div>
+          </div> : workspace === "priceBook" ? <PriceBookWorkspace items={priceBookQuery.data || []} draft={priceBookDraft} onChange={setPriceBookDraft} onSave={addPriceBookItem} saving={createPriceBookMutation.isPending} onArchive={archivePriceBookItem} /> : <JobsWorkspace jobs={jobsQuery.data || []} loading={jobsQuery.isLoading} onStatusChange={updateJobStatus} />}
         </main>
       </div>
     </div>

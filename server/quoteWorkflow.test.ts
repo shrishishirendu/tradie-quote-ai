@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
+  createJobFromQuoteForUser: vi.fn(),
+  createPriceBookItemForUser: vi.fn(),
   createQuoteForUser: vi.fn(),
   duplicateQuoteForUser: vi.fn(),
+  getJobsForUser: vi.fn(),
+  getPriceBookItemsForUser: vi.fn(),
   getQuoteDetailForUser: vi.fn(),
   getQuotesForUser: vi.fn(),
+  updateJobStatusForUser: vi.fn(),
+  updatePriceBookItemForUser: vi.fn(),
   updateQuoteForUser: vi.fn(),
 }));
 
@@ -105,5 +111,38 @@ describe("quote workflow boundaries", () => {
     expect(dbMock.createQuoteForUser).toHaveBeenCalledWith(42, expect.objectContaining({ customerName: "Morgan Lee" }));
     expect(dbMock.updateQuoteForUser).toHaveBeenCalledWith(18, 42, expect.objectContaining({ customerName: "Morgan Lee" }));
     expect(dbMock.duplicateQuoteForUser).toHaveBeenCalledWith(18, 42);
+  });
+
+  it("scopes price book read and write actions to the signed-in tradie", async () => {
+    const priceBookItem = { id: 5, name: "Standard service call" };
+    dbMock.getPriceBookItemsForUser.mockResolvedValue([priceBookItem]);
+    dbMock.createPriceBookItemForUser.mockResolvedValue(priceBookItem);
+    dbMock.updatePriceBookItemForUser.mockResolvedValue(priceBookItem);
+    const caller = appRouter.createCaller(authenticatedContext(42));
+    const priceInput = { category: "callout" as const, name: "Standard service call", description: "Travel and first inspection", unit: "each", rate: 165, markupPercent: 0, trade: "Plumbing", status: "active" as const };
+
+    await expect(caller.priceBook.list()).resolves.toEqual([priceBookItem]);
+    await expect(caller.priceBook.create(priceInput)).resolves.toEqual(priceBookItem);
+    await expect(caller.priceBook.update({ id: 5, data: { ...priceInput, status: "archived" } })).resolves.toEqual(priceBookItem);
+
+    expect(dbMock.getPriceBookItemsForUser).toHaveBeenCalledWith(42);
+    expect(dbMock.createPriceBookItemForUser).toHaveBeenCalledWith(42, expect.objectContaining({ name: "Standard service call" }));
+    expect(dbMock.updatePriceBookItemForUser).toHaveBeenCalledWith(5, 42, expect.objectContaining({ status: "archived" }));
+  });
+
+  it("creates and updates a job only within the signed-in tradie workspace", async () => {
+    const job = { id: 9, status: "planned" };
+    dbMock.getJobsForUser.mockResolvedValue([job]);
+    dbMock.createJobFromQuoteForUser.mockResolvedValue(job);
+    dbMock.updateJobStatusForUser.mockResolvedValue({ ...job, status: "active" });
+    const caller = appRouter.createCaller(authenticatedContext(42));
+
+    await expect(caller.job.list()).resolves.toEqual([job]);
+    await expect(caller.job.createFromQuote({ quoteId: 18 })).resolves.toEqual(job);
+    await expect(caller.job.updateStatus({ id: 9, status: "active" })).resolves.toEqual({ ...job, status: "active" });
+
+    expect(dbMock.getJobsForUser).toHaveBeenCalledWith(42);
+    expect(dbMock.createJobFromQuoteForUser).toHaveBeenCalledWith(18, 42);
+    expect(dbMock.updateJobStatusForUser).toHaveBeenCalledWith(9, 42, "active");
   });
 });

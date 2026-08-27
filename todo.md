@@ -15,3 +15,10 @@
 - [x] Expand automated coverage for quote workflow validation and access protection.
 - [x] Add authenticated quote-router tests that verify per-user ownership scoping for saved quote actions.
 - [x] Produce a detailed PRD and user-flow specification for e-signature, price book, and variation-management features.
+- [x] Add a user-owned price book for repeatable labour, material, call-out, equipment, and other cost items.
+- [x] Let tradies apply price-book items to an editable quote and preserve quote-specific values.
+- [x] Add a quote-to-job workspace so tradies can track planned, active, and completed work from a saved quote.
+- [x] Add automated coverage and visual verification for the new price book and job workflows.
+- [x] Add direct visual review routes for the Price Book and Jobs workspaces at desktop and mobile widths.
+- [x] Test price-book item snapshot application and quote-to-job total calculation independently.
+- [x] Document that authenticated browser-session verification was deferred at the user’s request, while automated validation and responsive route checks were completed.
