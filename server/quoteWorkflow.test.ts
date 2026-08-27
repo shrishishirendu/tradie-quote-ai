@@ -1,20 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
+  createPaymentRequestForUser: vi.fn(),
+  createQuoteAcceptanceForUser: vi.fn(),
+  createVariationForUser: vi.fn(),
   createJobFromQuoteForUser: vi.fn(),
   createPriceBookItemForUser: vi.fn(),
   createQuoteForUser: vi.fn(),
   duplicateQuoteForUser: vi.fn(),
   getJobsForUser: vi.fn(),
+  getPaymentRequestsForJob: vi.fn(),
   getPriceBookItemsForUser: vi.fn(),
+  getPublicQuoteAcceptance: vi.fn(),
   getQuoteDetailForUser: vi.fn(),
   getQuotesForUser: vi.fn(),
+  getVariationsForJob: vi.fn(),
+  respondToQuoteAcceptance: vi.fn(),
+  setPaymentCheckoutSessionForUser: vi.fn(),
   updateJobStatusForUser: vi.fn(),
   updatePriceBookItemForUser: vi.fn(),
   updateQuoteForUser: vi.fn(),
+  updateVariationStatusForUser: vi.fn(),
 }));
 
+const paymentsMock = vi.hoisted(() => ({ createCheckoutPaymentLink: vi.fn() }));
+
 vi.mock("./db", () => dbMock);
+vi.mock("./payments", () => paymentsMock);
 
 import { appRouter, quoteInputSchema } from "./routers";
 import type { TrpcContext } from "./_core/context";
@@ -46,7 +58,7 @@ const validQuote = {
 function unauthenticatedContext(): TrpcContext {
   return {
     user: null,
-    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    req: { protocol: "https", headers: { origin: "https://app.example" } } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };
 }
@@ -64,7 +76,7 @@ function authenticatedContext(userId = 42): TrpcContext {
       updatedAt: new Date(),
       lastSignedIn: new Date(),
     },
-    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    req: { protocol: "https", headers: { origin: "https://app.example" } } as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };
 }
@@ -144,5 +156,48 @@ describe("quote workflow boundaries", () => {
     expect(dbMock.getJobsForUser).toHaveBeenCalledWith(42);
     expect(dbMock.createJobFromQuoteForUser).toHaveBeenCalledWith(18, 42);
     expect(dbMock.updateJobStatusForUser).toHaveBeenCalledWith(9, 42, "active");
+  });
+
+  it("issues an immutable customer approval link and records a public acceptance", async () => {
+    const acceptance = { id: 31, publicToken: "a".repeat(64), status: "pending" };
+    dbMock.createQuoteAcceptanceForUser.mockResolvedValue(acceptance);
+    dbMock.respondToQuoteAcceptance.mockResolvedValue({ ...acceptance, status: "accepted" });
+    const signedIn = appRouter.createCaller(authenticatedContext(42));
+    const publicCaller = appRouter.createCaller(unauthenticatedContext());
+
+    await expect(signedIn.acceptance.create({ quoteId: 18 })).resolves.toMatchObject({ publicToken: acceptance.publicToken, publicUrl: `https://app.example/accept/${acceptance.publicToken}` });
+    await expect(publicCaller.acceptance.respond({ token: acceptance.publicToken, decision: "accepted", signerName: "Morgan Lee", signerEmail: "morgan@example.com", agrees: true })).resolves.toMatchObject({ status: "accepted" });
+    expect(dbMock.createQuoteAcceptanceForUser).toHaveBeenCalledWith(18, 42);
+    expect(dbMock.respondToQuoteAcceptance).toHaveBeenCalledWith(acceptance.publicToken, "accepted", { name: "Morgan Lee", email: "morgan@example.com" });
+  });
+
+  it("requires explicit agreement before accepting a customer quote", async () => {
+    const caller = appRouter.createCaller(unauthenticatedContext());
+    await expect(caller.acceptance.respond({ token: "a".repeat(64), decision: "accepted", signerName: "Morgan Lee", signerEmail: "", agrees: false })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("scopes variations and payment links to the signed-in job owner", async () => {
+    const variation = { id: 14, status: "draft" };
+    const paymentRequest = { id: 21, title: "Deposit", description: null, requestedAmountCents: 12_500 };
+    dbMock.getVariationsForJob.mockResolvedValue({ job: { id: 9 }, variations: [], photos: [] });
+    dbMock.createVariationForUser.mockResolvedValue(variation);
+    dbMock.updateVariationStatusForUser.mockResolvedValue({ ...variation, status: "approved" });
+    dbMock.getPaymentRequestsForJob.mockResolvedValue([paymentRequest]);
+    dbMock.createPaymentRequestForUser.mockResolvedValue(paymentRequest);
+    paymentsMock.createCheckoutPaymentLink.mockResolvedValue({ sessionId: "cs_test_123", url: "https://checkout.stripe.test/session" });
+    dbMock.setPaymentCheckoutSessionForUser.mockResolvedValue({ ...paymentRequest, stripeCheckoutSessionId: "cs_test_123" });
+    const caller = appRouter.createCaller(authenticatedContext(42));
+    const variationInput = { jobId: 9, title: "Replace concealed valve", reason: "Damaged valve discovered", scopeOfWork: "Supply and replace the valve.", status: "draft" as const, subtotal: 120, gstAmount: 12, total: 132, photos: [] };
+
+    await expect(caller.variation.listForJob({ jobId: 9 })).resolves.toMatchObject({ job: { id: 9 } });
+    await expect(caller.variation.create(variationInput)).resolves.toEqual(variation);
+    await expect(caller.variation.updateStatus({ id: 14, status: "approved" })).resolves.toMatchObject({ status: "approved" });
+    await expect(caller.payment.listForJob({ jobId: 9 })).resolves.toEqual([{ ...paymentRequest, paymentStatus: "not_created" }]);
+    await expect(caller.payment.createCheckout({ jobId: 9, kind: "deposit", title: "Deposit", description: "Booking deposit", requestedAmountCents: 12_500, dueDate: "2026-09-10" })).resolves.toMatchObject({ checkoutUrl: "https://checkout.stripe.test/session" });
+
+    expect(dbMock.createVariationForUser).toHaveBeenCalledWith(9, 42, expect.objectContaining({ title: "Replace concealed valve", photos: [] }));
+    expect(dbMock.updateVariationStatusForUser).toHaveBeenCalledWith(14, 42, "approved");
+    expect(dbMock.createPaymentRequestForUser).toHaveBeenCalledWith(9, 42, expect.objectContaining({ requestedAmountCents: 12_500 }));
+    expect(dbMock.setPaymentCheckoutSessionForUser).toHaveBeenCalledWith(21, 42, "cs_test_123");
   });
 });

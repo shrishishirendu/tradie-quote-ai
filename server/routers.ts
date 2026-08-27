@@ -6,21 +6,31 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
+  createPaymentRequestForUser,
+  createQuoteAcceptanceForUser,
+  createVariationForUser,
   createJobFromQuoteForUser,
   createPriceBookItemForUser,
   createQuoteForUser,
   duplicateQuoteForUser,
   getJobsForUser,
+  getPaymentRequestsForJob,
   getPriceBookItemsForUser,
+  getPublicQuoteAcceptance,
   getQuoteDetailForUser,
   getQuotesForUser,
+  getVariationsForJob,
   PersistedPhotoPayload,
   QuotePayload,
+  respondToQuoteAcceptance,
+  setPaymentCheckoutSessionForUser,
   updateJobStatusForUser,
   updatePriceBookItemForUser,
   updateQuoteForUser,
+  updateVariationStatusForUser,
 } from "./db";
 import { storagePut } from "./storage";
+import { createCheckoutPaymentLink, getCheckoutPaymentStatus } from "./payments";
 
 const lineItemSchema = z.object({
   category: z.enum(["labour", "materials", "callout", "equipment", "other"]),
@@ -72,6 +82,10 @@ const draftSchema = z.object({
   photos: z.array(z.object({ dataUrl: z.string().max(9_500_000), fileName: z.string().max(220) })).max(5),
 });
 
+const variationPhotoSchema = z.object({ dataUrl: z.string().max(9_500_000).optional(), storageKey: z.string().max(500).optional(), url: z.string().max(720).optional(), fileName: z.string().trim().min(1).max(220) });
+const variationInputSchema = z.object({ jobId: z.number().int().positive(), title: z.string().trim().min(1).max(220), reason: z.string().trim().max(6000).optional(), scopeOfWork: z.string().trim().min(1).max(12000), status: z.enum(["draft", "sent", "approved", "declined"]), subtotal: z.number().finite().min(0).max(10_000_000), gstAmount: z.number().finite().min(0).max(10_000_000), total: z.number().finite().min(0).max(10_000_000), photos: z.array(variationPhotoSchema).max(5) });
+const paymentRequestInputSchema = z.object({ jobId: z.number().int().positive(), kind: z.enum(["deposit", "invoice"]), title: z.string().trim().min(1).max(220), description: z.string().trim().max(4000).optional(), requestedAmountCents: z.number().int().min(50).max(10_000_000), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")) });
+
 export const priceBookInputSchema = z.object({
   category: z.enum(["labour", "materials", "callout", "equipment", "other"]),
   name: z.string().trim().min(1).max(180),
@@ -114,6 +128,19 @@ async function persistPhotos(userId: number, photos: z.infer<typeof photoSchema>
       throw new TRPCError({ code: "BAD_REQUEST", message: "A saved photo reference was invalid." });
     }
     return { storageKey: photo.storageKey, url: photo.url, fileName: cleanedFileName(photo.fileName, `job-photo-${index + 1}`) };
+  }));
+}
+
+async function persistVariationPhotos(userId: number, photos: z.infer<typeof variationPhotoSchema>[]): Promise<PersistedPhotoPayload[]> {
+  return Promise.all(photos.map(async (photo, index) => {
+    if (photo.dataUrl) {
+      const image = dataUrlToImage(photo.dataUrl);
+      const fileName = cleanedFileName(photo.fileName, `variation-photo-${index + 1}.jpg`);
+      const stored = await storagePut(`${userId}/variation-photos/${crypto.randomUUID()}-${fileName}`, image.data, image.mimeType);
+      return { storageKey: stored.key, url: stored.url, fileName };
+    }
+    if (!photo.storageKey || !photo.url || !photo.storageKey.startsWith(`${userId}/`)) throw new TRPCError({ code: "BAD_REQUEST", message: "A saved variation photo reference was invalid." });
+    return { storageKey: photo.storageKey, url: photo.url, fileName: cleanedFileName(photo.fileName, `variation-photo-${index + 1}`) };
   }));
 }
 
@@ -249,6 +276,65 @@ export const appRouter = router({
         };
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The draft response was not valid. Please try again." });
+      }
+    }),
+  }),
+  acceptance: router({
+    create: protectedProcedure.input(z.object({ quoteId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const acceptance = await createQuoteAcceptanceForUser(input.quoteId, ctx.user.id);
+      if (!acceptance) throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found." });
+      const origin = ctx.req.headers.origin || `${ctx.req.protocol}://${ctx.req.get("host")}`;
+      return { ...acceptance, publicUrl: `${origin}/accept/${acceptance.publicToken}` };
+    }),
+    getPublic: publicProcedure.input(z.object({ token: z.string().min(32).max(96) })).query(async ({ input }) => {
+      const acceptance = await getPublicQuoteAcceptance(input.token);
+      if (!acceptance || acceptance.status === "revoked") throw new TRPCError({ code: "NOT_FOUND", message: "This approval link is no longer available." });
+      return { ...acceptance, quoteSnapshot: JSON.parse(acceptance.quoteSnapshot) };
+    }),
+    respond: publicProcedure.input(z.object({ token: z.string().min(32).max(96), decision: z.enum(["accepted", "declined"]), signerName: z.string().trim().min(1).max(160), signerEmail: z.string().trim().email().max(320).optional().or(z.literal("")), agrees: z.boolean() })).mutation(async ({ input }) => {
+      if (input.decision === "accepted" && !input.agrees) throw new TRPCError({ code: "BAD_REQUEST", message: "Please confirm that you agree to the quote before accepting it." });
+      const response = await respondToQuoteAcceptance(input.token, input.decision, { name: input.signerName, email: toOptional(input.signerEmail) });
+      if (!response) throw new TRPCError({ code: "CONFLICT", message: "This approval request has already been actioned or is no longer available." });
+      return response;
+    }),
+  }),
+  variation: router({
+    listForJob: protectedProcedure.input(z.object({ jobId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const result = await getVariationsForJob(input.jobId, ctx.user.id);
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      return result;
+    }),
+    create: protectedProcedure.input(variationInputSchema).mutation(async ({ ctx, input }) => {
+      const photos = await persistVariationPhotos(ctx.user.id, input.photos);
+      const variation = await createVariationForUser(input.jobId, ctx.user.id, { ...input, reason: toOptional(input.reason), photos });
+      if (!variation) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      return variation;
+    }),
+    updateStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["draft", "sent", "approved", "declined"]) })).mutation(async ({ ctx, input }) => {
+      const variation = await updateVariationStatusForUser(input.id, ctx.user.id, input.status);
+      if (!variation) throw new TRPCError({ code: "NOT_FOUND", message: "Variation not found." });
+      return variation;
+    }),
+  }),
+  payment: router({
+    listForJob: protectedProcedure.input(z.object({ jobId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const requests = await getPaymentRequestsForJob(input.jobId, ctx.user.id);
+      return Promise.all(requests.map(async request => {
+        if (!request.stripeCheckoutSessionId) return { ...request, paymentStatus: "not_created" as const };
+        try { return { ...request, paymentStatus: await getCheckoutPaymentStatus(request.stripeCheckoutSessionId) }; }
+        catch { return { ...request, paymentStatus: "unavailable" as const }; }
+      }));
+    }),
+    createCheckout: protectedProcedure.input(paymentRequestInputSchema).mutation(async ({ ctx, input }) => {
+      const request = await createPaymentRequestForUser(input.jobId, ctx.user.id, { kind: input.kind, title: input.title, description: toOptional(input.description), requestedAmountCents: input.requestedAmountCents, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null });
+      if (!request) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      try {
+        const origin = ctx.req.headers.origin || `${ctx.req.protocol}://${ctx.req.get("host")}`;
+        const checkout = await createCheckoutPaymentLink({ origin, userId: ctx.user.id, customerEmail: null, customerName: null, paymentRequestId: request.id, jobId: input.jobId, title: request.title, description: request.description, amountCents: request.requestedAmountCents });
+        await setPaymentCheckoutSessionForUser(request.id, ctx.user.id, checkout.sessionId);
+        return { paymentRequest: request, checkoutUrl: checkout.url };
+      } catch (error) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "Payment link could not be generated." });
       }
     }),
   }),

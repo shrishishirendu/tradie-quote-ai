@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { JobsWorkspace, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
+import { JobOperationsPanel, JobsWorkspace, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { applyPriceBookItemToQuote } from "@shared/priceBook";
@@ -141,6 +141,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [workspace, setWorkspace] = useState<WorkspaceView>(() => window.location.pathname === "/price-book" ? "priceBook" : window.location.pathname === "/jobs" ? "jobs" : "quotes");
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [priceBookDraft, setPriceBookDraft] = useState<PriceBookDraft>(() => newPriceBookItem());
   const photoInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
@@ -152,10 +153,16 @@ export default function Home() {
   const duplicateMutation = trpc.quote.duplicate.useMutation();
   const priceBookQuery = trpc.priceBook.list.useQuery(undefined, { enabled: isAuthenticated });
   const jobsQuery = trpc.job.list.useQuery(undefined, { enabled: isAuthenticated });
+  const variationsQuery = trpc.variation.listForJob.useQuery({ jobId: selectedJobId ?? -1 }, { enabled: Boolean(selectedJobId) });
+  const paymentsQuery = trpc.payment.listForJob.useQuery({ jobId: selectedJobId ?? -1 }, { enabled: Boolean(selectedJobId) });
   const createPriceBookMutation = trpc.priceBook.create.useMutation();
   const updatePriceBookMutation = trpc.priceBook.update.useMutation();
   const createJobMutation = trpc.job.createFromQuote.useMutation();
   const updateJobStatusMutation = trpc.job.updateStatus.useMutation();
+  const acceptanceMutation = trpc.acceptance.create.useMutation();
+  const createVariationMutation = trpc.variation.create.useMutation();
+  const updateVariationMutation = trpc.variation.updateStatus.useMutation();
+  const createPaymentMutation = trpc.payment.createCheckout.useMutation();
   const totals = useMemo(() => quoteTotals(form), [form]);
 
   useEffect(() => {
@@ -293,8 +300,9 @@ export default function Home() {
   const createJobFromQuote = () => {
     if (!selectedId) { toast.message("Save this quote before creating a job workspace."); return; }
     createJobMutation.mutate({ quoteId: selectedId }, {
-      onSuccess: () => {
+      onSuccess: job => {
         utils.job.list.invalidate();
+        setSelectedJobId(job.id);
         setWorkspace("jobs");
         toast.success("Job workspace created from this quote.");
       },
@@ -304,6 +312,29 @@ export default function Home() {
 
   const updateJobStatus = (id: number, status: "planned" | "active" | "on_hold" | "complete") => {
     updateJobStatusMutation.mutate({ id, status }, { onSuccess: () => { utils.job.list.invalidate(); toast.success("Job status updated."); }, onError: error => toast.error(error.message || "Job status could not be updated.") });
+  };
+
+  const requestQuoteApproval = () => {
+    if (!selectedId) { toast.message("Save the quote first, then create a customer approval link."); return; }
+    acceptanceMutation.mutate({ quoteId: selectedId }, { onSuccess: result => {
+      navigator.clipboard?.writeText(result.publicUrl).catch(() => undefined);
+      const subject = encodeURIComponent(`Approval requested — ${form.jobTitle}`);
+      const body = encodeURIComponent(`Hi ${form.customerName},\n\nPlease review and approve your quote here:\n${result.publicUrl}\n\nKind regards,`);
+      if (form.customerEmail.trim()) window.location.href = `mailto:${form.customerEmail.trim()}?subject=${subject}&body=${body}`;
+      toast.success("Approval link created and copied. An email draft has been opened where an email is available.");
+    }, onError: error => toast.error(error.message || "The approval link could not be created.") });
+  };
+
+  const createVariation = (data: any) => {
+    if (!selectedJobId) return;
+    createVariationMutation.mutate({ jobId: selectedJobId, ...data, photos: data.photos.map((photo: PhotoInput) => ({ dataUrl: photo.dataUrl, storageKey: photo.storageKey, url: photo.url, fileName: photo.fileName })) }, { onSuccess: () => { utils.variation.listForJob.invalidate(); toast.success(data.status === "sent" ? "Variation request saved and marked sent." : "Variation saved as a draft."); }, onError: error => toast.error(error.message || "The variation could not be saved.") });
+  };
+
+  const updateVariationStatus = (id: number, status: "approved" | "declined") => updateVariationMutation.mutate({ id, status }, { onSuccess: () => { utils.variation.listForJob.invalidate(); toast.success(`Variation marked ${status}.`); }, onError: error => toast.error(error.message || "Variation status could not be updated.") });
+
+  const createPaymentLink = (data: { kind: "deposit" | "invoice"; title: string; description: string; amountCents: number; dueDate: string }) => {
+    if (!selectedJobId) return;
+    createPaymentMutation.mutate({ jobId: selectedJobId, kind: data.kind, title: data.title, description: data.description || undefined, requestedAmountCents: data.amountCents, dueDate: data.dueDate }, { onSuccess: result => { utils.payment.listForJob.invalidate(); window.open(result.checkoutUrl, "_blank", "noopener,noreferrer"); toast.success("Secure Stripe payment link created in a new tab."); }, onError: error => toast.error(error.message || "The payment link could not be generated.") });
   };
 
   if (loading) return <div className="min-h-screen app-grid flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-[#315d50]" /></div>;
@@ -348,7 +379,7 @@ export default function Home() {
               <button onClick={() => setSidebarOpen(value => !value)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#d8e0d3] bg-white lg:hidden" aria-label="Open quote navigation"><PanelLeftOpen className="h-4 w-4" /></button>
               <div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-display text-[23px] leading-tight tracking-tight">{workspace === "quotes" ? (form.jobTitle || "New customer quote") : workspace === "jobs" ? "Job workspace" : "Your price book"}</p>{workspace === "quotes" && selectedId && <span className="hidden rounded-full bg-[#e9eee2] px-2 py-0.5 font-mono text-[9px] font-semibold text-[#60766b] sm:block">{form.quoteNumber}</span>}</div><p className="mt-1 truncate font-mono text-[10px] font-medium uppercase tracking-[.1em] text-[#668075]">{workspace === "quotes" ? <>{form.customerName || "Complete the brief to begin"} <span className="px-1 text-[#a3afa4]">/</span> {form.trade}</> : workspace === "jobs" ? "PLAN · TRACK · COMPLETE" : "CONSISTENT PRICING, YOUR WAY"}</p></div>
             </div>
-            <div className="flex items-center gap-2">{workspace === "quotes" ? <>{selectedId && <button onClick={createJobFromQuote} disabled={createJobMutation.isPending} className="subtle-button hidden lg:inline-flex">{createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />} Create job</button>}{selectedId && <button onClick={duplicateQuote} disabled={duplicateMutation.isPending} className="subtle-button hidden md:inline-flex">{duplicateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} Copy</button>}<button onClick={() => window.print()} className="subtle-button hidden sm:inline-flex"><Printer className="h-4 w-4" /> Print / PDF</button><button onClick={shareByEmail} className="subtle-button hidden md:inline-flex"><Mail className="h-4 w-4" /> Share</button><button onClick={() => saveQuote("ready")} disabled={createMutation.isPending || updateMutation.isPending} className="primary-button">{(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span className="hidden sm:inline">Ready to send</span><span className="sm:hidden">Save</span></button></> : <button onClick={() => setWorkspace("quotes")} className="primary-button"><FilePlus2 className="h-4 w-4" /> New quote</button>}</div>
+            <div className="flex items-center gap-2">{workspace === "quotes" ? <>{selectedId && <button onClick={createJobFromQuote} disabled={createJobMutation.isPending} className="subtle-button hidden lg:inline-flex">{createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />} Create job</button>}{selectedId && <button onClick={requestQuoteApproval} disabled={acceptanceMutation.isPending} className="subtle-button hidden lg:inline-flex">{acceptanceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Request approval</button>}{selectedId && <button onClick={duplicateQuote} disabled={duplicateMutation.isPending} className="subtle-button hidden md:inline-flex">{duplicateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} Copy</button>}<button onClick={() => window.print()} className="subtle-button hidden sm:inline-flex"><Printer className="h-4 w-4" /> Print / PDF</button><button onClick={shareByEmail} className="subtle-button hidden md:inline-flex"><Mail className="h-4 w-4" /> Share</button><button onClick={() => saveQuote("ready")} disabled={createMutation.isPending || updateMutation.isPending} className="primary-button">{(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}<span className="hidden sm:inline">Ready to send</span><span className="sm:hidden">Save</span></button></> : <button onClick={() => setWorkspace("quotes")} className="primary-button"><FilePlus2 className="h-4 w-4" /> New quote</button>}</div>
           </header>
 
           {workspace === "quotes" ? <div className="mx-auto max-w-[1800px] p-4 lg:p-7">
@@ -375,7 +406,7 @@ export default function Home() {
               </div>
               <aside className="xl:sticky xl:top-6 xl:self-start"><div className="mb-3 flex items-center justify-between px-1"><p className="font-mono text-[10px] font-bold tracking-[.14em] text-[#668075]">CUSTOMER PREVIEW</p><span className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.1em] ${form.status === "ready" ? "bg-[#d9ee9f] text-[#35563a]" : "bg-[#eee7d5] text-[#8a6d31]"}`}>{statusLabel(form.status)}</span></div><CustomerQuote form={form} totals={totals} compact /><div className="panel mt-4 rounded-2xl p-4"><div className="grid grid-cols-2 gap-3"><Field label="GST rate" value={String(form.gstRate)} onChange={value => updateForm("gstRate", Number(value))} type="number" /><Field label="Valid until" value={form.validUntil} onChange={value => updateForm("validUntil", value)} type="date" /></div><div className="mt-4 flex gap-2"><button onClick={() => saveQuote("draft")} className="subtle-button flex-1" disabled={createMutation.isPending || updateMutation.isPending}><FileText className="h-4 w-4" />Save draft</button><button onClick={() => window.print()} className="subtle-button grid w-11 place-items-center px-0" aria-label="Print or save PDF"><Printer className="h-4 w-4" /></button></div></div></aside>
             </div>
-          </div> : workspace === "priceBook" ? <PriceBookWorkspace items={priceBookQuery.data || []} draft={priceBookDraft} onChange={setPriceBookDraft} onSave={addPriceBookItem} saving={createPriceBookMutation.isPending} onArchive={archivePriceBookItem} /> : <JobsWorkspace jobs={jobsQuery.data || []} loading={jobsQuery.isLoading} onStatusChange={updateJobStatus} />}
+          </div> : workspace === "priceBook" ? <PriceBookWorkspace items={priceBookQuery.data || []} draft={priceBookDraft} onChange={setPriceBookDraft} onSave={addPriceBookItem} saving={createPriceBookMutation.isPending} onArchive={archivePriceBookItem} /> : <><JobsWorkspace jobs={jobsQuery.data || []} loading={jobsQuery.isLoading} onStatusChange={updateJobStatus} onOpenJob={job => setSelectedJobId(job.id)} />{selectedJobId && <div className="mx-auto max-w-[1400px] px-4 pb-7 lg:px-7">{jobsQuery.data?.find(job => job.id === selectedJobId) && <JobOperationsPanel job={jobsQuery.data.find(job => job.id === selectedJobId)} variations={variationsQuery.data?.variations || []} payments={paymentsQuery.data || []} onCreateVariation={createVariation} variationPending={createVariationMutation.isPending} onVariationStatus={updateVariationStatus} onCreatePayment={createPaymentLink} paymentPending={createPaymentMutation.isPending} />}</div>}</>}
         </main>
       </div>
     </div>

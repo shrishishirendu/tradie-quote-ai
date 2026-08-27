@@ -1,0 +1,1 @@
+ALTER TABLE `quoteAcceptances` ADD `snapshotHash` varchar(64) NOT NULL;

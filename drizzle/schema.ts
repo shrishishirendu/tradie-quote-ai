@@ -92,6 +92,66 @@ export const jobs = mysqlTable("jobs", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("jobs_user_status_updated_idx").on(table.userId, table.status, table.updatedAt), index("jobs_source_quote_idx").on(table.sourceQuoteId)]);
 
+export const quoteAcceptances = mysqlTable("quoteAcceptances", {
+  id: int("id").autoincrement().primaryKey(),
+  quoteId: int("quoteId").notNull().references(() => quotes.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  publicToken: varchar("publicToken", { length: 96 }).notNull().unique(),
+  status: mysqlEnum("status", ["pending", "accepted", "declined", "revoked"]).default("pending").notNull(),
+  recipientName: varchar("recipientName", { length: 160 }),
+  recipientEmail: varchar("recipientEmail", { length: 320 }),
+  quoteSnapshot: text("quoteSnapshot").notNull(),
+  snapshotHash: varchar("snapshotHash", { length: 64 }).notNull(),
+  acceptedName: varchar("acceptedName", { length: 160 }),
+  acceptedEmail: varchar("acceptedEmail", { length: 320 }),
+  acceptedAt: timestamp("acceptedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("quote_acceptances_user_quote_idx").on(table.userId, table.quoteId), index("quote_acceptances_quote_status_idx").on(table.quoteId, table.status)]);
+
+export const variations = mysqlTable("variations", {
+  id: int("id").autoincrement().primaryKey(),
+  jobId: int("jobId").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  variationNumber: varchar("variationNumber", { length: 48 }).notNull(),
+  title: varchar("title", { length: 220 }).notNull(),
+  reason: text("reason"),
+  scopeOfWork: text("scopeOfWork").notNull(),
+  status: mysqlEnum("status", ["draft", "sent", "approved", "declined"]).default("draft").notNull(),
+  subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull(),
+  gstAmount: decimal("gstAmount", { precision: 14, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 14, scale: 2 }).notNull(),
+  customerResponse: text("customerResponse"),
+  sentAt: timestamp("sentAt"),
+  respondedAt: timestamp("respondedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("variations_job_status_idx").on(table.jobId, table.status, table.updatedAt), index("variations_user_updated_idx").on(table.userId, table.updatedAt)]);
+
+export const variationPhotos = mysqlTable("variationPhotos", {
+  id: int("id").autoincrement().primaryKey(),
+  variationId: int("variationId").notNull().references(() => variations.id, { onDelete: "cascade" }),
+  storageKey: varchar("storageKey", { length: 500 }).notNull(),
+  url: varchar("url", { length: 720 }).notNull(),
+  fileName: varchar("fileName", { length: 220 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [index("variation_photos_variation_idx").on(table.variationId)]);
+
+export const paymentRequests = mysqlTable("paymentRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  jobId: int("jobId").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  paymentNumber: varchar("paymentNumber", { length: 48 }).notNull(),
+  kind: mysqlEnum("kind", ["deposit", "invoice"]).notNull(),
+  title: varchar("title", { length: 220 }).notNull(),
+  description: text("description"),
+  requestedAmountCents: int("requestedAmountCents").notNull(),
+  dueDate: timestamp("dueDate"),
+  stripeCheckoutSessionId: varchar("stripeCheckoutSessionId", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("payment_requests_job_updated_idx").on(table.jobId, table.updatedAt), index("payment_requests_session_idx").on(table.stripeCheckoutSessionId)]);
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Quote = typeof quotes.$inferSelect;
@@ -99,3 +159,7 @@ export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
 export type QuotePhoto = typeof quotePhotos.$inferSelect;
 export type PriceBookItem = typeof priceBookItems.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
+export type QuoteAcceptance = typeof quoteAcceptances.$inferSelect;
+export type Variation = typeof variations.$inferSelect;
+export type VariationPhoto = typeof variationPhotos.$inferSelect;
+export type PaymentRequest = typeof paymentRequests.$inferSelect;

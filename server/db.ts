@@ -1,13 +1,18 @@
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { createHash } from "node:crypto";
 import {
   InsertUser,
   jobs,
+  paymentRequests,
   priceBookItems,
+  quoteAcceptances,
   quoteLineItems,
   quotePhotos,
   quotes,
   users,
+  variationPhotos,
+  variations,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { calculateQuoteJobTotal } from "./jobSnapshot";
@@ -64,6 +69,27 @@ export type PriceBookPayload = {
   markupPercent: number;
   trade: string;
   status: "active" | "archived";
+};
+
+export type VariationPhotoPayload = PersistedPhotoPayload;
+
+export type VariationPayload = {
+  title: string;
+  reason?: string | null;
+  scopeOfWork: string;
+  status: "draft" | "sent" | "approved" | "declined";
+  subtotal: number;
+  gstAmount: number;
+  total: number;
+  photos: VariationPhotoPayload[];
+};
+
+export type PaymentRequestPayload = {
+  kind: "deposit" | "invoice";
+  title: string;
+  description?: string | null;
+  requestedAmountCents: number;
+  dueDate?: Date | null;
 };
 
 export async function getDb() {
@@ -322,4 +348,123 @@ export async function updateJobStatusForUser(jobId: number, userId: number, stat
   if (!db) throw new Error("Database is unavailable");
   await db.update(jobs).set({ status, updatedAt: new Date() }).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId)));
   return (await db.select().from(jobs).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId))).limit(1))[0];
+}
+
+export async function createQuoteAcceptanceForUser(quoteId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const source = await getQuoteDetailForUser(quoteId, userId);
+  if (!source) return undefined;
+  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+  const snapshot = JSON.stringify({
+    quote: source.quote,
+    lineItems: source.lineItems,
+    totals: calculateQuoteJobTotal(source.lineItems, source.quote.gstRate),
+  });
+  const snapshotHash = createHash("sha256").update(snapshot).digest("hex");
+  const created = await db.insert(quoteAcceptances).values({
+    quoteId,
+    userId,
+    publicToken: token,
+    status: "pending",
+    recipientName: source.quote.customerName,
+    recipientEmail: source.quote.customerEmail,
+    quoteSnapshot: snapshot,
+    snapshotHash,
+  }).$returningId();
+  const id = Number(created[0]?.id);
+  return (await db.select().from(quoteAcceptances).where(and(eq(quoteAcceptances.id, id), eq(quoteAcceptances.userId, userId))).limit(1))[0];
+}
+
+export async function getPublicQuoteAcceptance(publicToken: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  return (await db.select().from(quoteAcceptances).where(eq(quoteAcceptances.publicToken, publicToken)).limit(1))[0];
+}
+
+export async function respondToQuoteAcceptance(publicToken: string, decision: "accepted" | "declined", signer: { name: string; email?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const existing = await getPublicQuoteAcceptance(publicToken);
+  if (!existing || existing.status !== "pending") return undefined;
+  await db.update(quoteAcceptances).set({
+    status: decision,
+    acceptedName: decision === "accepted" ? signer.name : null,
+    acceptedEmail: decision === "accepted" ? signer.email ?? null : null,
+    acceptedAt: decision === "accepted" ? new Date() : null,
+    updatedAt: new Date(),
+  }).where(and(eq(quoteAcceptances.id, existing.id), eq(quoteAcceptances.status, "pending")));
+  return getPublicQuoteAcceptance(publicToken);
+}
+
+export async function getVariationsForJob(jobId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const job = (await db.select().from(jobs).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId))).limit(1))[0];
+  if (!job) return undefined;
+  const records = await db.select().from(variations).where(and(eq(variations.jobId, jobId), eq(variations.userId, userId))).orderBy(desc(variations.updatedAt));
+  const photos = records.length ? await db.select().from(variationPhotos).where(eq(variationPhotos.variationId, records[0]!.id)) : [];
+  return { job, variations: records, photos };
+}
+
+export async function createVariationForUser(jobId: number, userId: number, payload: VariationPayload) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const job = (await db.select().from(jobs).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId))).limit(1))[0];
+  if (!job) return undefined;
+  const created = await db.insert(variations).values({
+    jobId,
+    userId,
+    variationNumber: `VAR-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+    title: payload.title,
+    reason: payload.reason ?? null,
+    scopeOfWork: payload.scopeOfWork,
+    status: payload.status,
+    subtotal: payload.subtotal.toFixed(2),
+    gstAmount: payload.gstAmount.toFixed(2),
+    total: payload.total.toFixed(2),
+    sentAt: payload.status === "sent" ? new Date() : null,
+  }).$returningId();
+  const variationId = Number(created[0]?.id);
+  if (payload.photos.length) await db.insert(variationPhotos).values(payload.photos.map(photo => ({ variationId, ...photo })));
+  return (await db.select().from(variations).where(and(eq(variations.id, variationId), eq(variations.userId, userId))).limit(1))[0];
+}
+
+export async function updateVariationStatusForUser(variationId: number, userId: number, status: "draft" | "sent" | "approved" | "declined") {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.update(variations).set({ status, sentAt: status === "sent" ? new Date() : undefined, respondedAt: status === "approved" || status === "declined" ? new Date() : undefined, updatedAt: new Date() }).where(and(eq(variations.id, variationId), eq(variations.userId, userId)));
+  return (await db.select().from(variations).where(and(eq(variations.id, variationId), eq(variations.userId, userId))).limit(1))[0];
+}
+
+export async function createPaymentRequestForUser(jobId: number, userId: number, payload: PaymentRequestPayload) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const job = (await db.select().from(jobs).where(and(eq(jobs.id, jobId), eq(jobs.userId, userId))).limit(1))[0];
+  if (!job) return undefined;
+  const created = await db.insert(paymentRequests).values({
+    jobId,
+    userId,
+    paymentNumber: `${payload.kind === "deposit" ? "DEP" : "INV"}-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+    kind: payload.kind,
+    title: payload.title,
+    description: payload.description ?? null,
+    requestedAmountCents: payload.requestedAmountCents,
+    dueDate: payload.dueDate ?? null,
+  }).$returningId();
+  const id = Number(created[0]?.id);
+  return (await db.select().from(paymentRequests).where(and(eq(paymentRequests.id, id), eq(paymentRequests.userId, userId))).limit(1))[0];
+}
+
+export async function setPaymentCheckoutSessionForUser(paymentRequestId: number, userId: number, sessionId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.update(paymentRequests).set({ stripeCheckoutSessionId: sessionId, updatedAt: new Date() }).where(and(eq(paymentRequests.id, paymentRequestId), eq(paymentRequests.userId, userId)));
+  return (await db.select().from(paymentRequests).where(and(eq(paymentRequests.id, paymentRequestId), eq(paymentRequests.userId, userId))).limit(1))[0];
+}
+
+export async function getPaymentRequestsForJob(jobId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  return db.select().from(paymentRequests).where(and(eq(paymentRequests.jobId, jobId), eq(paymentRequests.userId, userId))).orderBy(desc(paymentRequests.updatedAt));
 }

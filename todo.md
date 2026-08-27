@@ -22,3 +22,11 @@
 - [x] Add direct visual review routes for the Price Book and Jobs workspaces at desktop and mobile widths.
 - [x] Test price-book item snapshot application and quote-to-job total calculation independently.
 - [x] Document that authenticated browser-session verification was deferred at the user’s request, while automated validation and responsive route checks were completed.
+- [x] Add customer-ready quote acceptance with explicit agreement, signer details, timestamp, and tamper-evident approval record.
+- [x] Add direct customer quote sharing through secure public acceptance links.
+- [x] Add user-owned on-site variation requests with detailed scope, price, photo uploads, and approval status tracking.
+- [x] Add job-level deposit requests and invoices with GST totals, payment status, and payment-link generation.
+- [x] Configure the payment provider capability and connect secure payment collection to deposit and invoice requests.
+- [x] Add automated tests and public-route responsive visual verification for acceptance, variations, and payment workflows.
+- [ ] Claim the connected Stripe test sandbox and complete a live sandbox checkout before production payment collection.
+- [ ] Complete a signed-in browser walkthrough for approval-link creation, valid customer approval, variation photo upload, variation status changes, and deposit/invoice link creation before production rollout.
