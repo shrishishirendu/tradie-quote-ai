@@ -46,8 +46,10 @@
 - [ ] Run a test deposit Checkout using card 4242 4242 4242 4242 and confirm the success redirect.
 - [ ] Run a test invoice Checkout and confirm the verified webhook/payment status outcome.
 - [ ] Switch to live keys only after business verification, webhook configuration, and successful sandbox checks.
-- [ ] Add a separate Price Book Upload CSV action and downloadable template with the required import columns.
-- [ ] Parse and validate every CSV row before persistence, showing row-level errors and preventing invalid confirmation.
-- [ ] Detect active-item duplicates by name and trade and provide per-row Create new, Update existing, or Skip choices.
-- [ ] Batch-apply valid import choices in one authenticated action and show created, updated, and skipped counts.
-- [ ] Preserve the existing manual Add Item flow and test the CSV import helpers, server procedure, and responsive preview UI.
+- [x] Add a separate Price Book Upload CSV action and downloadable template with the required import columns.
+- [x] Parse and validate every CSV row before persistence, showing row-level errors and preventing invalid confirmation.
+- [x] Detect active-item duplicates by name and trade and provide per-row Create new, Update existing, or Skip choices.
+- [x] Batch-apply valid import choices in one authenticated action and show created, updated, and skipped counts.
+- [x] Preserve the existing manual Add Item flow and test the CSV import helpers, server procedure, and responsive preview UI.
+- [x] Block CSV confirmation whenever any preview row has validation errors, requiring invalid rows to be fixed or removed first.
+- [ ] Complete a signed-in browser walkthrough of CSV preview, invalid-row handling, duplicate decisions, and final import summary when authenticated access is available.

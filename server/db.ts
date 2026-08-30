@@ -312,6 +312,30 @@ export async function updatePriceBookItemForUser(itemId: number, userId: number,
   return (await db.select().from(priceBookItems).where(and(eq(priceBookItems.id, itemId), eq(priceBookItems.userId, userId))).limit(1))[0];
 }
 
+export type PriceBookImportRecord = { name: string; description: string; category: "labour" | "materials" | "callout" | "equipment" | "other"; trade: string; unit: string; rate: number; markupPercent: number; decision: "create" | "update" | "skip"; duplicateId?: number };
+
+export async function batchImportPriceBookForUser(userId: number, records: PriceBookImportRecord[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const summary = { created: 0, updated: 0, skipped: 0 };
+  await db.transaction(async tx => {
+    for (const record of records) {
+      if (record.decision === "skip") { summary.skipped += 1; continue; }
+      const values = { category: record.category, name: record.name.trim(), description: record.description.trim() || null, unit: record.unit.trim(), rate: record.rate.toFixed(2), markupPercent: record.markupPercent.toFixed(2), trade: record.trade.trim(), updatedAt: new Date() };
+      if (record.decision === "update") {
+        if (!record.duplicateId) throw new Error("An update row is missing its duplicate item");
+        const updated = await tx.update(priceBookItems).set(values).where(and(eq(priceBookItems.id, record.duplicateId), eq(priceBookItems.userId, userId), eq(priceBookItems.status, "active")));
+        if (updated[0].affectedRows !== 1) throw new Error(`Price book item ${record.duplicateId} is no longer active`);
+        summary.updated += 1;
+      } else {
+        await tx.insert(priceBookItems).values({ userId, ...values, status: "active" });
+        summary.created += 1;
+      }
+    }
+  });
+  return summary;
+}
+
 export async function getJobsForUser(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");

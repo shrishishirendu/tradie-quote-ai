@@ -6,6 +6,7 @@ const dbMock = vi.hoisted(() => ({
   createVariationForUser: vi.fn(),
   createJobFromQuoteForUser: vi.fn(),
   createPriceBookItemForUser: vi.fn(),
+  batchImportPriceBookForUser: vi.fn(),
   createQuoteForUser: vi.fn(),
   duplicateQuoteForUser: vi.fn(),
   getJobsForUser: vi.fn(),
@@ -199,5 +200,13 @@ describe("quote workflow boundaries", () => {
     expect(dbMock.updateVariationStatusForUser).toHaveBeenCalledWith(14, 42, "approved");
     expect(dbMock.createPaymentRequestForUser).toHaveBeenCalledWith(9, 42, expect.objectContaining({ requestedAmountCents: 12_500 }));
     expect(dbMock.setPaymentCheckoutSessionForUser).toHaveBeenCalledWith(21, 42, "cs_test_123");
+  });
+
+  it("passes validated CSV import rows to the signed-in user's batch scope", async () => {
+    dbMock.batchImportPriceBookForUser.mockResolvedValue({ created: 1, updated: 1, skipped: 1 });
+    const caller = appRouter.createCaller(authenticatedContext(42));
+    const rows = [{ name: "Service call", description: "Call out", category: "callout" as const, trade: "Plumbing", unit: "job", rate: 95, markupPercent: 20, decision: "create" as const }];
+    await expect(caller.priceBook.batchImport({ rows })).resolves.toEqual({ created: 1, updated: 1, skipped: 1 });
+    expect(dbMock.batchImportPriceBookForUser).toHaveBeenCalledWith(42, rows);
   });
 });

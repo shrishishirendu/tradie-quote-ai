@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { JobOperationsPanel, JobsWorkspace, MobileFieldDashboard, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
+import { JobOperationsPanel, JobsWorkspace, MobileFieldDashboard, PriceBookImportPanel, PriceBookQuickAdd, PriceBookWorkspace, SidebarWorkspaceButton } from "@/components/TradieOperations";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { applyPriceBookItemToQuote } from "@shared/priceBook";
@@ -159,6 +159,7 @@ export default function Home() {
   const paymentsQuery = trpc.payment.listForJob.useQuery({ jobId: selectedJobId ?? -1 }, { enabled: Boolean(selectedJobId) });
   const createPriceBookMutation = trpc.priceBook.create.useMutation();
   const updatePriceBookMutation = trpc.priceBook.update.useMutation();
+  const importPriceBookMutation = trpc.priceBook.batchImport.useMutation();
   const createJobMutation = trpc.job.createFromQuote.useMutation();
   const updateJobStatusMutation = trpc.job.updateStatus.useMutation();
   const acceptanceMutation = trpc.acceptance.create.useMutation();
@@ -299,6 +300,13 @@ export default function Home() {
     });
   };
 
+  const importPriceBook = (rows: import("@shared/priceBookCsv").PriceBookImportRow[]) => {
+    importPriceBookMutation.mutate({ rows }, {
+      onSuccess: summary => { utils.priceBook.list.invalidate(); toast.success(`${summary.created} created, ${summary.updated} updated, ${summary.skipped} skipped.`); },
+      onError: error => toast.error(error.message || "The CSV import could not be applied."),
+    });
+  };
+
   const createJobFromQuote = () => {
     if (!selectedId) { toast.message("Save this quote before creating a job workspace."); return; }
     createJobMutation.mutate({ quoteId: selectedId }, {
@@ -408,7 +416,7 @@ export default function Home() {
               </div>
               <aside className="xl:sticky xl:top-6 xl:self-start"><div className="mb-3 flex items-center justify-between px-1"><p className="font-mono text-[10px] font-bold tracking-[.14em] text-[#668075]">CUSTOMER PREVIEW</p><span className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.1em] ${form.status === "ready" ? "bg-[#d9ee9f] text-[#35563a]" : "bg-[#eee7d5] text-[#8a6d31]"}`}>{statusLabel(form.status)}</span></div><CustomerQuote form={form} totals={totals} compact /><div className="panel mt-4 rounded-2xl p-4"><div className="grid grid-cols-2 gap-3"><Field label="GST rate" value={String(form.gstRate)} onChange={value => updateForm("gstRate", Number(value))} type="number" /><Field label="Valid until" value={form.validUntil} onChange={value => updateForm("validUntil", value)} type="date" /></div><div className="mt-4 flex gap-2"><button onClick={() => saveQuote("draft")} className="subtle-button flex-1" disabled={createMutation.isPending || updateMutation.isPending}><FileText className="h-4 w-4" />Save draft</button><button onClick={() => window.print()} className="subtle-button grid w-11 place-items-center px-0" aria-label="Print or save PDF"><Printer className="h-4 w-4" /></button></div></div></aside>
             </div>
-          </div> : workspace === "priceBook" ? <PriceBookWorkspace items={priceBookQuery.data || []} draft={priceBookDraft} onChange={setPriceBookDraft} onSave={addPriceBookItem} saving={createPriceBookMutation.isPending} onArchive={archivePriceBookItem} /> : <><JobsWorkspace jobs={jobsQuery.data || []} loading={jobsQuery.isLoading} onStatusChange={updateJobStatus} onOpenJob={job => setSelectedJobId(job.id)} />{selectedJobId && <div className="mx-auto max-w-[1400px] px-4 pb-7 lg:px-7">{jobsQuery.data?.find(job => job.id === selectedJobId) && <JobOperationsPanel job={jobsQuery.data.find(job => job.id === selectedJobId)} variations={variationsQuery.data?.variations || []} payments={paymentsQuery.data || []} onCreateVariation={createVariation} variationPending={createVariationMutation.isPending} onVariationStatus={updateVariationStatus} onCreatePayment={createPaymentLink} paymentPending={createPaymentMutation.isPending} />}</div>}</>}
+          </div> : workspace === "priceBook" ? <><PriceBookImportPanel items={priceBookQuery.data || []} onImport={importPriceBook} importing={importPriceBookMutation.isPending} /><PriceBookWorkspace items={priceBookQuery.data || []} draft={priceBookDraft} onChange={setPriceBookDraft} onSave={addPriceBookItem} saving={createPriceBookMutation.isPending} onArchive={archivePriceBookItem} onImport={importPriceBook} importing={importPriceBookMutation.isPending} /></> : <><JobsWorkspace jobs={jobsQuery.data || []} loading={jobsQuery.isLoading} onStatusChange={updateJobStatus} onOpenJob={job => setSelectedJobId(job.id)} />{selectedJobId && <div className="mx-auto max-w-[1400px] px-4 pb-7 lg:px-7">{jobsQuery.data?.find(job => job.id === selectedJobId) && <JobOperationsPanel job={jobsQuery.data.find(job => job.id === selectedJobId)} variations={variationsQuery.data?.variations || []} payments={paymentsQuery.data || []} onCreateVariation={createVariation} variationPending={createVariationMutation.isPending} onVariationStatus={updateVariationStatus} onCreatePayment={createPaymentLink} paymentPending={createPaymentMutation.isPending} />}</div>}</>}
         </main>
       </div>
     </div>

@@ -35,5 +35,5 @@ export function parsePriceBookCsv(text: string, existingItems: PriceBookCsvExist
   });
 }
 
-export type PriceBookImportRow = Omit<PriceBookCsvRow, "rowNumber" | "errors" | "duplicateId"> & { duplicateId?: number };
+export type PriceBookImportRow = { name: string; description: string; category: PriceBookCsvCategory; trade: string; unit: string; rate: number; markupPercent: number; decision: PriceBookImportDecision; duplicateId?: number };
 export function toImportPayload(row: PriceBookCsvRow): PriceBookImportRow { return { name: row.name, description: row.description, category: row.category as PriceBookCsvCategory, trade: row.trade, unit: row.unit, rate: row.rate, markupPercent: row.markupPercent, decision: row.decision, duplicateId: row.duplicateId }; }

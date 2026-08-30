@@ -27,6 +27,7 @@ import {
   setPaymentCheckoutSessionForUser,
   updateJobStatusForUser,
   updatePriceBookItemForUser,
+  batchImportPriceBookForUser,
   updateQuoteForUser,
   updateVariationStatusForUser,
 } from "./db";
@@ -86,6 +87,18 @@ const draftSchema = z.object({
 const variationPhotoSchema = z.object({ dataUrl: z.string().max(9_500_000).optional(), storageKey: z.string().max(500).optional(), url: z.string().max(720).optional(), fileName: z.string().trim().min(1).max(220) });
 const variationInputSchema = z.object({ jobId: z.number().int().positive(), title: z.string().trim().min(1).max(220), reason: z.string().trim().max(6000).optional(), scopeOfWork: z.string().trim().min(1).max(12000), status: z.enum(["draft", "sent", "approved", "declined"]), subtotal: z.number().finite().min(0).max(10_000_000), gstAmount: z.number().finite().min(0).max(10_000_000), total: z.number().finite().min(0).max(10_000_000), photos: z.array(variationPhotoSchema).max(5) });
 const paymentRequestInputSchema = z.object({ jobId: z.number().int().positive(), kind: z.enum(["deposit", "invoice"]), title: z.string().trim().min(1).max(220), description: z.string().trim().max(4000).optional(), requestedAmountCents: z.number().int().min(50).max(10_000_000), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")) });
+
+export const priceBookImportInputSchema = z.object({
+  name: z.string().trim().min(1).max(180),
+  description: z.string().trim().max(4000),
+  category: z.enum(["labour", "materials", "callout", "equipment", "other"]),
+  trade: z.string().trim().min(1).max(100),
+  unit: z.string().trim().min(1).max(32),
+  rate: z.number().finite().min(0).max(1_000_000),
+  markupPercent: z.number().finite().min(-100).max(500),
+  decision: z.enum(["create", "update", "skip"]),
+  duplicateId: z.number().int().positive().optional(),
+});
 
 export const priceBookInputSchema = z.object({
   category: z.enum(["labour", "materials", "callout", "equipment", "other"]),
@@ -353,6 +366,11 @@ export const appRouter = router({
       const item = await updatePriceBookItemForUser(input.id, ctx.user.id, { ...input.data, description: toOptional(input.data.description) });
       if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Price book item not found." });
       return item;
+    }),
+    batchImport: protectedProcedure.input(z.object({ rows: z.array(priceBookImportInputSchema).min(1).max(500) })).mutation(async ({ ctx, input }) => {
+      const invalidUpdate = input.rows.some(row => row.decision === "update" && !row.duplicateId);
+      if (invalidUpdate) throw new TRPCError({ code: "BAD_REQUEST", message: "Every update row needs an existing item." });
+      return batchImportPriceBookForUser(ctx.user.id, input.rows);
     }),
   }),
   job: router({
