@@ -36,3 +36,13 @@
 - [x] Document implementation-ready information architecture, mobile interaction flows, and notification delivery choices.
 - [x] Add explicit mobile dashboard cards for quote approvals and onsite variations, with direct user actions and real-data counts.
 - [x] Re-verify the enhanced mobile dashboard at a phone viewport.
+- [ ] Connect or confirm the Stripe sandbox through the project Settings → Payment panel before running payment smoke tests.
+- [ ] Verify sandbox deposit and invoice Checkout Sessions and inspect webhook outcomes.
+- [ ] Complete a signed-in browser walkthrough of approval, variation, and payment flows when browser access is available.
+- [ ] Document final Stripe readiness and remaining launch safeguards.
+- [x] Confirm the Stripe integration code, secure webhook verification, and Checkout Session flow are implemented.
+- [ ] Open Project Settings → Payment and connect or confirm the Stripe sandbox account.
+- [ ] Confirm the project is using Stripe test mode and that the sandbox is claimed.
+- [ ] Run a test deposit Checkout using card 4242 4242 4242 4242 and confirm the success redirect.
+- [ ] Run a test invoice Checkout and confirm the verified webhook/payment status outcome.
+- [ ] Switch to live keys only after business verification, webhook configuration, and successful sandbox checks.
