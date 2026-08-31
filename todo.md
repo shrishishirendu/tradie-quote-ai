@@ -76,7 +76,7 @@
 - [x] Re-scope quote, job, price book, variation, payment request, and quote acceptance access checks to organizationId.
 - [x] Preserve current API/UI behavior for the existing account while enforcing organization ownership on cross-entity operations.
 - [x] Add organization-isolation regression tests and run TypeScript plus the full test suite; authenticated app smoke checks remain pending.
-- [ ] Document the migration and save a delivery checkpoint.
+- [x] Document the migration and save a delivery checkpoint.
 
 ## Step 3 — Organization-scoped server access
 
@@ -85,3 +85,10 @@
 - [x] Ensure parent-child ownership checks use the same organization boundary for cross-entity operations.
 - [x] Add organization-isolation regression coverage; authenticated existing-account walkthrough remains pending.
 - [x] Run TypeScript and the full test suite; authenticated app smoke checks remain pending.
+
+## Multi-organization runtime isolation verification
+
+- [x] Add a behavioral test with a second organization and isolated business records across quotes, jobs, price book, variations, payment requests, and quote acceptances.
+- [x] Verify cross-organization reads return no records and cross-organization writes/updates cannot mutate records.
+- [x] Run the runtime isolation test and full TypeScript/Vitest regression suite.
+- [x] Remove or roll back all test seed data and document the verification result.
