@@ -324,8 +324,11 @@ export async function getPriceBookItemsForUser(userId: number) {
 export async function createPriceBookItemForUser(userId: number, payload: PriceBookPayload) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
+  const organization = await getOrganizationForUser(userId);
+  if (!organization) throw new Error("Organization is unavailable");
   const created = await db.insert(priceBookItems).values({
     userId,
+    organizationId: organization.id,
     category: payload.category,
     name: payload.name,
     description: payload.description ?? null,
@@ -362,6 +365,8 @@ export async function batchImportPriceBookForUser(userId: number, records: Price
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const summary = { created: 0, updated: 0, skipped: 0 };
+  const organization = await getOrganizationForUser(userId);
+  if (!organization) throw new Error("Organization is unavailable");
   await db.transaction(async tx => {
     for (const record of records) {
       if (record.decision === "skip") { summary.skipped += 1; continue; }
@@ -372,7 +377,7 @@ export async function batchImportPriceBookForUser(userId: number, records: Price
         if (updated[0].affectedRows !== 1) throw new Error(`Price book item ${record.duplicateId} is no longer active`);
         summary.updated += 1;
       } else {
-        await tx.insert(priceBookItems).values({ userId, ...values, status: "active" });
+        await tx.insert(priceBookItems).values({ userId, organizationId: organization.id, ...values, status: "active" });
         summary.created += 1;
       }
     }
@@ -396,6 +401,7 @@ export async function createJobFromQuoteForUser(quoteId: number, userId: number)
   const jobTotal = calculateQuoteJobTotal(source.lineItems, source.quote.gstRate);
   const created = await db.insert(jobs).values({
     userId,
+    organizationId: source.quote.organizationId,
     sourceQuoteId: quoteId,
     jobNumber: `JOB-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
     status: "planned",
@@ -433,6 +439,7 @@ export async function createQuoteAcceptanceForUser(quoteId: number, userId: numb
   const created = await db.insert(quoteAcceptances).values({
     quoteId,
     userId,
+    organizationId: source.quote.organizationId,
     publicToken: token,
     status: "pending",
     recipientName: source.quote.customerName,
@@ -483,6 +490,7 @@ export async function createVariationForUser(jobId: number, userId: number, payl
   const created = await db.insert(variations).values({
     jobId,
     userId,
+    organizationId: job.organizationId,
     variationNumber: `VAR-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
     title: payload.title,
     reason: payload.reason ?? null,
@@ -513,6 +521,7 @@ export async function createPaymentRequestForUser(jobId: number, userId: number,
   const created = await db.insert(paymentRequests).values({
     jobId,
     userId,
+    organizationId: job.organizationId,
     paymentNumber: `${payload.kind === "deposit" ? "DEP" : "INV"}-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
     kind: payload.kind,
     title: payload.title,

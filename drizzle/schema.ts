@@ -71,6 +71,7 @@ export const quotePhotos = mysqlTable("quotePhotos", {
 export const priceBookItems = mysqlTable("priceBookItems", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
   category: mysqlEnum("category", ["labour", "materials", "callout", "equipment", "other"]).notNull(),
   name: varchar("name", { length: 180 }).notNull(),
   description: text("description"),
@@ -81,11 +82,12 @@ export const priceBookItems = mysqlTable("priceBookItems", {
   status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => [index("price_book_user_status_idx").on(table.userId, table.status, table.trade)]);
+}, table => [index("price_book_user_status_idx").on(table.userId, table.status, table.trade), index("price_book_organization_status_idx").on(table.organizationId, table.status, table.trade)]);
 
 export const jobs = mysqlTable("jobs", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
   sourceQuoteId: int("sourceQuoteId").references(() => quotes.id, { onDelete: "set null" }),
   jobNumber: varchar("jobNumber", { length: 48 }).notNull(),
   status: mysqlEnum("status", ["planned", "active", "on_hold", "complete"]).default("planned").notNull(),
@@ -98,12 +100,13 @@ export const jobs = mysqlTable("jobs", {
   gstRate: decimal("gstRate", { precision: 5, scale: 2 }).default("10.00").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => [index("jobs_user_status_updated_idx").on(table.userId, table.status, table.updatedAt), index("jobs_source_quote_idx").on(table.sourceQuoteId)]);
+}, table => [index("jobs_user_status_updated_idx").on(table.userId, table.status, table.updatedAt), index("jobs_source_quote_idx").on(table.sourceQuoteId), index("jobs_organization_status_updated_idx").on(table.organizationId, table.status, table.updatedAt)]);
 
 export const quoteAcceptances = mysqlTable("quoteAcceptances", {
   id: int("id").autoincrement().primaryKey(),
   quoteId: int("quoteId").notNull().references(() => quotes.id, { onDelete: "cascade" }),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
   publicToken: varchar("publicToken", { length: 96 }).notNull().unique(),
   status: mysqlEnum("status", ["pending", "accepted", "declined", "revoked"]).default("pending").notNull(),
   recipientName: varchar("recipientName", { length: 160 }),
@@ -115,12 +118,13 @@ export const quoteAcceptances = mysqlTable("quoteAcceptances", {
   acceptedAt: timestamp("acceptedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => [index("quote_acceptances_user_quote_idx").on(table.userId, table.quoteId), index("quote_acceptances_quote_status_idx").on(table.quoteId, table.status)]);
+}, table => [index("quote_acceptances_user_quote_idx").on(table.userId, table.quoteId), index("quote_acceptances_quote_status_idx").on(table.quoteId, table.status), index("quote_acceptances_organization_status_idx").on(table.organizationId, table.status)]);
 
 export const variations = mysqlTable("variations", {
   id: int("id").autoincrement().primaryKey(),
   jobId: int("jobId").notNull().references(() => jobs.id, { onDelete: "cascade" }),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
   variationNumber: varchar("variationNumber", { length: 48 }).notNull(),
   title: varchar("title", { length: 220 }).notNull(),
   reason: text("reason"),
@@ -134,7 +138,7 @@ export const variations = mysqlTable("variations", {
   respondedAt: timestamp("respondedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => [index("variations_job_status_idx").on(table.jobId, table.status, table.updatedAt), index("variations_user_updated_idx").on(table.userId, table.updatedAt)]);
+}, table => [index("variations_job_status_idx").on(table.jobId, table.status, table.updatedAt), index("variations_user_updated_idx").on(table.userId, table.updatedAt), index("variations_organization_status_updated_idx").on(table.organizationId, table.status, table.updatedAt)]);
 
 export const variationPhotos = mysqlTable("variationPhotos", {
   id: int("id").autoincrement().primaryKey(),
@@ -149,6 +153,7 @@ export const paymentRequests = mysqlTable("paymentRequests", {
   id: int("id").autoincrement().primaryKey(),
   jobId: int("jobId").notNull().references(() => jobs.id, { onDelete: "cascade" }),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
   paymentNumber: varchar("paymentNumber", { length: 48 }).notNull(),
   kind: mysqlEnum("kind", ["deposit", "invoice"]).notNull(),
   title: varchar("title", { length: 220 }).notNull(),
@@ -158,7 +163,7 @@ export const paymentRequests = mysqlTable("paymentRequests", {
   stripeCheckoutSessionId: varchar("stripeCheckoutSessionId", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => [index("payment_requests_job_updated_idx").on(table.jobId, table.updatedAt), index("payment_requests_session_idx").on(table.stripeCheckoutSessionId)]);
+}, table => [index("payment_requests_job_updated_idx").on(table.jobId, table.updatedAt), index("payment_requests_session_idx").on(table.stripeCheckoutSessionId), index("payment_requests_organization_updated_idx").on(table.organizationId, table.updatedAt)]);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;

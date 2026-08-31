@@ -60,3 +60,11 @@
 - [x] Add the organizations table with core identity fields and a safe migration/backfill plan.
 - [x] Add the minimal organization persistence helper without implementing memberships, switching, or broader tenant scoping.
 - [x] Verify before/after row counts for every affected table and run TypeScript/tests/app smoke checks.
+
+## Step 2 — Organization links on business-owned tables
+
+- [x] Audit all tables with userId ownership and identify the remaining business-owned tables requiring organizationId.
+- [x] Add organizationId foreign keys and indexes to jobs, priceBookItems, variations, paymentRequests, quoteAcceptances, and any additional missed business-owned table.
+- [x] Backfill every existing row from its userId to the current account organization without changing authentication or permissions.
+- [x] Verify before/after counts and zero missing organizationId rows for each affected table.
+- [x] Run the full test suite and smoke-check unchanged quote, job, price book, variation, and payment behavior.
