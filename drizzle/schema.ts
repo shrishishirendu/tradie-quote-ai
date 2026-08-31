@@ -1,4 +1,4 @@
-import { decimal, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { decimal, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -23,6 +23,17 @@ export const organizations = mysqlTable("organizations", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+export const organizationMembers = mysqlTable("organizationMembers", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: mysqlEnum("role", ["manager", "supervisor", "estimator", "field_user"]).default("field_user").notNull(),
+  status: mysqlEnum("status", ["active", "invited"]).default("active").notNull(),
+  joinedAt: timestamp("joinedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [uniqueIndex("organization_members_org_user_unique").on(table.organizationId, table.userId), index("organization_members_user_idx").on(table.userId)]);
 
 export const quotes = mysqlTable("quotes", {
   id: int("id").autoincrement().primaryKey(),
@@ -88,6 +99,7 @@ export const jobs = mysqlTable("jobs", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
+  assignedUserId: int("assignedUserId").references(() => users.id, { onDelete: "set null" }),
   sourceQuoteId: int("sourceQuoteId").references(() => quotes.id, { onDelete: "set null" }),
   jobNumber: varchar("jobNumber", { length: 48 }).notNull(),
   status: mysqlEnum("status", ["planned", "active", "on_hold", "complete"]).default("planned").notNull(),
@@ -168,6 +180,7 @@ export const paymentRequests = mysqlTable("paymentRequests", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Organization = typeof organizations.$inferSelect;
+export type OrganizationMember = typeof organizationMembers.$inferSelect;
 export type InsertOrganization = typeof organizations.$inferInsert;
 export type Quote = typeof quotes.$inferSelect;
 export type QuoteLineItem = typeof quoteLineItems.$inferSelect;

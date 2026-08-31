@@ -41,3 +41,11 @@ Organization A could read only its own quotes, price-book items, jobs, variation
 The complete verification passed with **8 test files and 25 tests** passing. TypeScript compilation with `tsc --noEmit` also passed. The test cleanup hook removed all temporary rows. A follow-up database query confirmed `0` users with the `runtime-isolation-*` prefix and `0` organizations named with the `Runtime Org A` or `Runtime Org B` test prefixes remaining.
 
 The runtime test uses an extended 30-second timeout because real database connection and cleanup operations can exceed Vitest’s five-second default. The authenticated browser walkthrough remains a separate pending check; this note records runtime server-side isolation only.
+
+## Multi-tenant Phase 1 membership data model — 31 August 2026
+
+Added the `organizationMembers` table with foreign keys to organizations and users, role values `manager`, `supervisor`, `estimator`, and `field_user`, status values `active` and `invited`, optional `joinedAt`, timestamps, a unique organization/user pair constraint, and a user lookup index. Added nullable `jobs.assignedUserId` with a foreign key to users and `ON DELETE SET NULL`. No UI, permission logic, query logic, authentication, invitation, or assignment behavior was changed.
+
+Before migration, there was **1 organization**, **1 organization owner**, and **1 job**. The membership table did not exist and the assignment column did not exist. After migration, there are **1 organization**, **1 organizationMembers row**, **1 active manager membership for the owner**, **0 organizations missing an owner membership**, **0 duplicate organization/user pairs**, and **1 job**. All existing jobs remain unassigned: **0 jobs with a non-null assignedUserId**.
+
+The owner backfill is idempotent and inserts only missing owner memberships. TypeScript compilation passed. The full Vitest suite passed with **8 test files and 25 tests** passing, including the real-database organization isolation test. Existing application behavior remains unchanged because this step adds schema and data only; the authenticated browser walkthrough remains a separate pending follow-up.

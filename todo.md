@@ -92,3 +92,11 @@
 - [x] Verify cross-organization reads return no records and cross-organization writes/updates cannot mutate records.
 - [x] Run the runtime isolation test and full TypeScript/Vitest regression suite.
 - [x] Remove or roll back all test seed data and document the verification result.
+
+## Multi-tenant Phase 1 — Membership data model
+
+- [x] Add the organizationMembers table with organization/user foreign keys, role and status enums, timestamps, and one-membership-per-user-per-organization protection.
+- [x] Add nullable jobs.assignedUserId referencing users.id, leaving all existing jobs unassigned.
+- [x] Migrate every organization owner to exactly one active manager membership without changing organizations.ownerUserId.
+- [x] Verify before/after counts, duplicate membership count, missing owner memberships, and null assignedUserId count.
+- [x] Keep UI, permission/query logic, authentication, invitations, and assignment behavior unchanged; run tests and save a checkpoint.

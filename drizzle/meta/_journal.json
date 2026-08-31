@@ -57,6 +57,13 @@
       "when": 1788147010896,
       "tag": "0007_grey_iron_man",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1788151768184,
+      "tag": "0008_stale_shard",
+      "breakpoints": true
     }
   ]
 }
