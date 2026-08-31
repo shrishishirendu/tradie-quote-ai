@@ -68,3 +68,20 @@
 - [x] Backfill every existing row from its userId to the current account organization without changing authentication or permissions.
 - [x] Verify before/after counts and zero missing organizationId rows for each affected table.
 - [x] Run the full test suite and smoke-check unchanged quote, job, price book, variation, and payment behavior.
+
+## Step 3 — Organization-scoped query and permission logic
+
+- [x] Audit every business-owned read, create, update, delete, and parent-child lookup for userId-only scoping.
+- [x] Resolve the signed-in user’s organization context without changing authentication, sign-up, or membership behavior.
+- [x] Re-scope quote, job, price book, variation, payment request, and quote acceptance access checks to organizationId.
+- [x] Preserve current API/UI behavior for the existing account while enforcing organization ownership on cross-entity operations.
+- [x] Add organization-isolation regression tests and run TypeScript plus the full test suite; authenticated app smoke checks remain pending.
+- [ ] Document the migration and save a delivery checkpoint.
+
+## Step 3 — Organization-scoped server access
+
+- [x] Complete the interrupted migration of every quote, job, price-book, variation, payment-request, and quote-acceptance query and mutation from userId predicates to organizationId predicates.
+- [x] Centralize current-user organization resolution without changing authentication, sign-up, or membership behavior.
+- [x] Ensure parent-child ownership checks use the same organization boundary for cross-entity operations.
+- [x] Add organization-isolation regression coverage; authenticated existing-account walkthrough remains pending.
+- [x] Run TypeScript and the full test suite; authenticated app smoke checks remain pending.
