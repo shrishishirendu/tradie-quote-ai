@@ -17,3 +17,9 @@ The Price Book page was reviewed at desktop and phone-sized widths. The new Bulk
 ## CSV batch import test note
 
 The active server workflow tests mock database helpers from `server/db.ts`; the batch import helper is not yet included in that mock. A focused router boundary test should add the `batchImportPriceBookForUser` mock and assert the signed-in user ID is passed with validated import rows.
+
+## Organizations foundation verification — 31 August 2026
+
+Step 1 added the `organizations` table with `ownerUserId`, name, ABN, licence, phone, email, and timestamps. Existing quote business identity was backfilled into one organization per existing user, quotes were linked through `organizationId`, and the duplicated quote-level business columns were removed. The quote persistence layer now resolves organization identity while preserving the existing quote API shape.
+
+Migration counts: before, `users` = 1 and `quotes` = 1; `organizations` did not exist. After, `users` = 1, `quotes` = 1, `organizations` = 1, and quotes missing an organization = 0. The organization is linked to 1 quote. TypeScript compilation passed, all 21 Vitest tests passed, and desktop smoke captures of the existing quote and Price Book routes rendered successfully after migration.

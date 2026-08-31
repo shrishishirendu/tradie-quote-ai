@@ -53,3 +53,10 @@
 - [x] Preserve the existing manual Add Item flow and test the CSV import helpers, server procedure, and responsive preview UI.
 - [x] Block CSV confirmation whenever any preview row has validation errors, requiring invalid rows to be fixed or removed first.
 - [ ] Complete a signed-in browser walkthrough of CSV preview, invalid-row handling, duplicate decisions, and final import summary when authenticated access is available.
+
+## Step 1 — Organizations foundation
+
+- [x] Inspect existing quote and user business-identity fields and map them to the new organization entity.
+- [x] Add the organizations table with core identity fields and a safe migration/backfill plan.
+- [x] Add the minimal organization persistence helper without implementing memberships, switching, or broader tenant scoping.
+- [x] Verify before/after row counts for every affected table and run TypeScript/tests/app smoke checks.

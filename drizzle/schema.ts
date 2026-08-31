@@ -12,16 +12,24 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const organizations = mysqlTable("organizations", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerUserId: int("ownerUserId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 160 }).notNull(),
+  abn: varchar("abn", { length: 32 }),
+  licence: varchar("licence", { length: 80 }),
+  phone: varchar("phone", { length: 48 }),
+  email: varchar("email", { length: 320 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const quotes = mysqlTable("quotes", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: int("organizationId").notNull().references(() => organizations.id, { onDelete: "restrict" }),
   quoteNumber: varchar("quoteNumber", { length: 48 }).notNull(),
   status: mysqlEnum("status", ["draft", "ready", "sent"]).default("draft").notNull(),
-  businessName: varchar("businessName", { length: 160 }),
-  businessAbn: varchar("businessAbn", { length: 32 }),
-  businessLicence: varchar("businessLicence", { length: 80 }),
-  businessPhone: varchar("businessPhone", { length: 48 }),
-  businessEmail: varchar("businessEmail", { length: 320 }),
   customerName: varchar("customerName", { length: 160 }).notNull(),
   customerEmail: varchar("customerEmail", { length: 320 }),
   customerPhone: varchar("customerPhone", { length: 48 }),
@@ -37,7 +45,7 @@ export const quotes = mysqlTable("quotes", {
   validUntil: timestamp("validUntil"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => [index("quotes_user_updated_idx").on(table.userId, table.updatedAt)]);
+}, table => [index("quotes_user_updated_idx").on(table.userId, table.updatedAt), index("quotes_organization_updated_idx").on(table.organizationId, table.updatedAt)]);
 
 export const quoteLineItems = mysqlTable("quoteLineItems", {
   id: int("id").autoincrement().primaryKey(),
@@ -154,6 +162,8 @@ export const paymentRequests = mysqlTable("paymentRequests", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = typeof organizations.$inferInsert;
 export type Quote = typeof quotes.$inferSelect;
 export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
 export type QuotePhoto = typeof quotePhotos.$inferSelect;

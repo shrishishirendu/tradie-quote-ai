@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   InsertUser,
   jobs,
+  organizations,
   paymentRequests,
   priceBookItems,
   quoteAcceptances,
@@ -84,6 +85,14 @@ export type VariationPayload = {
   photos: VariationPhotoPayload[];
 };
 
+export type OrganizationIdentityPayload = {
+  businessName?: string | null;
+  businessAbn?: string | null;
+  businessLicence?: string | null;
+  businessPhone?: string | null;
+  businessEmail?: string | null;
+};
+
 export type PaymentRequestPayload = {
   kind: "deposit" | "invoice";
   title: string;
@@ -141,36 +150,74 @@ const lineValues = (quoteId: number, lineItems: QuoteLinePayload[]) =>
     sortOrder: item.sortOrder,
   }));
 
+async function getOrganizationForUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  return (await db.select().from(organizations).where(eq(organizations.ownerUserId, userId)).limit(1))[0];
+}
+
+async function upsertOrganizationForUser(userId: number, payload: OrganizationIdentityPayload) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const existing = await getOrganizationForUser(userId);
+  const values = {
+    ownerUserId: userId,
+    name: payload.businessName?.trim() || existing?.name || `Business ${userId}`,
+    abn: payload.businessAbn ?? null,
+    licence: payload.businessLicence ?? null,
+    phone: payload.businessPhone ?? null,
+    email: payload.businessEmail ?? null,
+  };
+  if (existing) {
+    await db.update(organizations).set({ ...values, updatedAt: new Date() }).where(eq(organizations.id, existing.id));
+    return { ...existing, ...values };
+  }
+  const created = await db.insert(organizations).values(values).$returningId();
+  const organizationId = Number(created[0]?.id);
+  if (!organizationId) throw new Error("Organization could not be created");
+  return (await db.select().from(organizations).where(eq(organizations.id, organizationId)).limit(1))[0];
+}
+
+function withOrganizationIdentity<T extends { organizationId: number }>(quote: T, organization: typeof organizations.$inferSelect | undefined) {
+  return {
+    ...quote,
+    businessName: organization?.name ?? null,
+    businessAbn: organization?.abn ?? null,
+    businessLicence: organization?.licence ?? null,
+    businessPhone: organization?.phone ?? null,
+    businessEmail: organization?.email ?? null,
+  };
+}
+
 export async function getQuotesForUser(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  return db.select().from(quotes).where(eq(quotes.userId, userId)).orderBy(desc(quotes.updatedAt));
+  const rows = await db.select({ quote: quotes, organization: organizations }).from(quotes).leftJoin(organizations, eq(quotes.organizationId, organizations.id)).where(eq(quotes.userId, userId)).orderBy(desc(quotes.updatedAt));
+  return rows.map(row => withOrganizationIdentity(row.quote, row.organization ?? undefined));
 }
 
 export async function getQuoteDetailForUser(quoteId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const quote = (await db.select().from(quotes).where(and(eq(quotes.id, quoteId), eq(quotes.userId, userId))).limit(1))[0];
-  if (!quote) return undefined;
+  const row = (await db.select({ quote: quotes, organization: organizations }).from(quotes).leftJoin(organizations, eq(quotes.organizationId, organizations.id)).where(and(eq(quotes.id, quoteId), eq(quotes.userId, userId))).limit(1))[0];
+  if (!row) return undefined;
   const [lineItems, photos] = await Promise.all([
     db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, quoteId)).orderBy(quoteLineItems.sortOrder),
     db.select().from(quotePhotos).where(eq(quotePhotos.quoteId, quoteId)),
   ]);
-  return { quote, lineItems, photos };
+  return { quote: withOrganizationIdentity(row.quote, row.organization ?? undefined), lineItems, photos };
 }
 
 export async function createQuoteForUser(userId: number, payload: QuotePayload) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
+  const organization = await upsertOrganizationForUser(userId, payload);
+  if (!organization) throw new Error("Organization could not be resolved");
   const created = await db.insert(quotes).values({
     userId,
+    organizationId: organization.id,
     quoteNumber: payload.quoteNumber,
     status: payload.status,
-    businessName: payload.businessName ?? null,
-    businessAbn: payload.businessAbn ?? null,
-    businessLicence: payload.businessLicence ?? null,
-    businessPhone: payload.businessPhone ?? null,
-    businessEmail: payload.businessEmail ?? null,
     customerName: payload.customerName,
     customerEmail: payload.customerEmail ?? null,
     customerPhone: payload.customerPhone ?? null,
@@ -198,14 +245,11 @@ export async function updateQuoteForUser(quoteId: number, userId: number, payloa
   const existing = await getQuoteDetailForUser(quoteId, userId);
   if (!existing) return undefined;
 
+  const organization = await upsertOrganizationForUser(userId, payload);
   await db.transaction(async tx => {
     await tx.update(quotes).set({
       status: payload.status,
-      businessName: payload.businessName ?? null,
-      businessAbn: payload.businessAbn ?? null,
-      businessLicence: payload.businessLicence ?? null,
-      businessPhone: payload.businessPhone ?? null,
-      businessEmail: payload.businessEmail ?? null,
+      organizationId: organization.id,
       customerName: payload.customerName,
       customerEmail: payload.customerEmail ?? null,
       customerPhone: payload.customerPhone ?? null,
